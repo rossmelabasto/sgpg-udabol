@@ -10,7 +10,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  serverExternalPackages: ["firebase-admin", "pdfjs-dist"],
+  serverExternalPackages: ["firebase-admin"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
