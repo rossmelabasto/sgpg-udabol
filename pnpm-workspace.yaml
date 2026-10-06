@@ -2,6 +2,7 @@ allowBuilds:
   '@firebase/util': true
   msw: true
   protobufjs: true
+  re2: false
   sharp: true
 overrides:
   jose: 5.10.0
