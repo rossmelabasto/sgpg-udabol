@@ -13,7 +13,7 @@ type Props = { url: string; title?: string; onClose?: () => void };
  *   la RAM en PDFs grandes (el enfoque anterior renderizaba todas de golpe).
  */
 export function PdfViewer({ url, title = "PDF", onClose }: Props) {
-  const proxyUrl = "/api/pdf-proxy?url=" + encodeURIComponent(url);
+  const proxyUrl = url;
   const [browser, setBrowser] = useState<"unknown" | "firefox" | "other">("unknown");
 
   useEffect(() => {

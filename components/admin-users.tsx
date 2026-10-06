@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { getAdminUsers, addAdminUser, removeAdminUser, toggleAdminStatus, updateAdminUser, type AdminUser } from "@/app/actions/users";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,43 +40,33 @@ export function AdminUsers() {
       setError("Email y contraseña son obligatorios");
       return;
     }
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres");
+    if (password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres");
       return;
     }
     setError("");
 
-    try {
-      // Crear usuario en Firebase Auth
-      const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const uid = userCred.user.uid;
-
-      const result = await addAdminUser(email.trim(), name.trim(), uid);
-      if (!result.ok) {
-        setError(result.error || "Error al agregar admin");
-      } else {
-        setEmail("");
-        setName("");
-        setPassword("");
-        await loadUsers();
-      }
-    } catch (err: any) {
-      const code = err.code || "";
-      if (code === "auth/email-already-in-use") {
-        setError("Este email ya está registrado en Firebase Auth. Puedes agregarlo como admin si ya existe.");
-      } else {
-        setError(err.message || "Error al crear usuario");
-      }
+    const result = await addAdminUser({ email: email.trim(), displayName: name.trim(), password });
+    if (!result.ok) {
+      setError(result.error);
+    } else {
+      setEmail("");
+      setName("");
+      setPassword("");
+      await loadUsers();
     }
   }
 
   async function handleRemove(id: string) {
-    await removeAdminUser(id);
+    if (!window.confirm("¿Quitar este administrador? Perderá el acceso de inmediato.")) return;
+    const r = await removeAdminUser(id);
+    if (!r.ok) setError(r.error);
     await loadUsers();
   }
 
   async function handleToggle(id: string, current: boolean) {
-    await toggleAdminStatus(id, !current);
+    const r = await toggleAdminStatus(id, !current);
+    if (!r.ok) setError(r.error);
     await loadUsers();
   }
 
@@ -96,8 +84,8 @@ export function AdminUsers() {
       setEditError("No hay cambios para guardar.");
       return;
     }
-    if (editPassword && editPassword.length < 6) {
-      setEditError("La contraseña debe tener al menos 6 caracteres.");
+    if (editPassword && editPassword.length < 8) {
+      setEditError("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
     setEditSaving(true);
@@ -109,7 +97,7 @@ export function AdminUsers() {
     });
     setEditSaving(false);
     if (!result.ok) {
-      setEditError(result.error || "Error al guardar.");
+      setEditError(result.error);
     } else {
       setEditOpen(false);
       await loadUsers();

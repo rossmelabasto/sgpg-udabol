@@ -1,4 +1,5 @@
 import { getUserRole, logout } from "@/app/actions/auth"
+import { isAdminRole, ROLE_LABELS } from "@/lib/projects"
 import { Button } from "@/components/ui/button"
 import { GraduationCap, LogOut, ShieldCheck } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -21,9 +22,9 @@ export async function SiteHeader() {
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-full border border-sidebar-border/70 bg-sidebar-accent/40 px-3 py-1.5 text-xs font-semibold shadow-inner">
-            {role === "admin" ? <ShieldCheck className="size-3.5 text-primary" /> : null}
-            <span className="hidden sm:inline text-sidebar-accent-foreground">{role === "admin" ? "Administrador" : "Modo Invitado"}</span>
-            <span className="sm:hidden text-sidebar-accent-foreground">{role === "admin" ? "Admin" : "Invitado"}</span>
+            {isAdminRole(role) ? <ShieldCheck className="size-3.5 text-primary" /> : null}
+            <span className="hidden sm:inline text-sidebar-accent-foreground">{ROLE_LABELS[role]}</span>
+            <span className="sm:hidden text-sidebar-accent-foreground">{role === "superadmin" ? "Superadmin" : isAdminRole(role) ? "Admin" : "Invitado"}</span>
           </div>
           <ThemeToggle />
           <form action={logout}>

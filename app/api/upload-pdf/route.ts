@@ -1,76 +1,54 @@
+// POST /api/upload-pdf — sube un PDF a Storage (solo administradores).
+// Devuelve la ruta interna; el PDF queda asociado al proyecto recién cuando se
+// guarda el formulario (createProject/updateProject), que es quien versiona.
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { adminStorage, adminDb } from "@/lib/firebase/admin";
+import { adminStorage } from "@/lib/firebase/admin";
+import { getSession, isAdminRole } from "@/lib/auth";
+import { buildStoragePath, looksLikePdf } from "@/lib/pdf-storage";
+import { MAX_PDF_BYTES } from "@/lib/projects";
 
-function buildStoragePath(fileName: string) {
-  const safeFileName = encodeURIComponent(fileName);
-  return `projects/${crypto.randomUUID()}-${safeFileName}`;
-}
+export const runtime = "nodejs";
 
-async function savePdfVersion(projectId: string, oldUrl: string) {
-  try {
-    await adminDb
-      .collection("projects")
-      .doc(projectId)
-      .collection("pdfHistory")
-      .add({
-        url: oldUrl,
-        uploadedAt: new Date().toISOString(),
-      });
-  } catch (err) {
-    console.error("Error guardando version anterior del PDF:", err);
-  }
-}
+const MB = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MB`;
 
 export async function POST(request: Request) {
-  const rawCookie = await (await cookies()).get("udabol_session")?.value;
-  const pipeIdx = rawCookie?.lastIndexOf("|") ?? -1;
-  const role = pipeIdx !== -1 ? rawCookie!.slice(pipeIdx + 1) : null;
-
-  if (role !== "admin") {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role)) {
     return NextResponse.json({ error: "Solo los administradores pueden subir PDFs." }, { status: 403 });
   }
 
-  const formData = await request.formData();
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MAX_PDF_BYTES + 64 * 1024) {
+    return NextResponse.json({ error: `El PDF pesa más de ${MB(MAX_PDF_BYTES)}. Comprímelo y vuelve a intentarlo.` }, { status: 413 });
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.json({ error: "No se pudo leer el archivo." }, { status: 400 });
+  }
   const file = formData.get("pdf");
-  const projectId = formData.get("projectId") as string | null;
-
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "No se recibio un archivo PDF valido." }, { status: 400 });
+  if (!(file instanceof File) || file.size === 0) {
+    return NextResponse.json({ error: "No se recibió un archivo PDF válido." }, { status: 400 });
+  }
+  if (file.size > MAX_PDF_BYTES) {
+    return NextResponse.json({ error: `El PDF pesa más de ${MB(MAX_PDF_BYTES)}. Comprímelo y vuelve a intentarlo.` }, { status: 413 });
   }
 
-  // Guardar version anterior si hay reemplazo
-  if (projectId) {
-    try {
-      const doc = await adminDb.collection("projects").doc(projectId).get();
-      if (doc.exists) {
-        const data = doc.data();
-        if (data?.pdfUrl) {
-          await savePdfVersion(projectId, data.pdfUrl as string);
-        }
-      }
-    } catch (err) {
-      console.error("Error al verificar pdfUrl anterior:", err);
-    }
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (!looksLikePdf(buffer)) {
+    return NextResponse.json({ error: "El archivo no es un PDF válido." }, { status: 415 });
   }
 
-  // Subir a Firebase Storage usando Admin SDK
   const path = buildStoragePath(file.name);
-  const bucket = adminStorage.bucket();
-  const fileRef = bucket.file(path);
-
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  await fileRef.save(buffer, {
-    metadata: { contentType: "application/pdf", cacheControl: "public, max-age=31536000" },
+  await adminStorage.bucket().file(path).save(buffer, {
+    metadata: {
+      contentType: "application/pdf",
+      metadata: { uploadedBy: session.email ?? session.uid, originalName: file.name.slice(0, 200) },
+    },
+    resumable: false,
   });
 
-  // Generar URL firmada valida 1 ano (no requiere makePublic)
-  const [signedUrl] = await fileRef.getSignedUrl({
-    action: "read",
-    expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
-  });
-
-  return NextResponse.json({ ok: true, url: signedUrl, projectId });
+  return NextResponse.json({ ok: true, path, fileName: file.name, size: file.size });
 }

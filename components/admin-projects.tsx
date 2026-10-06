@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CARRERAS, type SearchResult, type PdfVersion } from "@/lib/projects";
+import { CARRERAS, pdfUrlFor, type SearchResult, type PdfVersion } from "@/lib/projects";
 import { ProjectHistoryList } from "@/components/project-history"
 import { PdfViewerDialog } from "@/components/pdf-viewer-dialog";
 import { getPdfHistory } from "@/app/actions/projects";
@@ -107,14 +107,14 @@ export function AdminProjects({ projects, onDelete, onEdit }: Props) {
   const hasFilters = !!career || !!yearFrom || !!yearTo;
 
   function exportCSV() {
-    const headers = ["Título", "Alumno", "Carrera", "Año", "Resumen", "URL PDF"];
+    const headers = ["Título", "Alumno", "Carrera", "Año", "Resumen", "Tiene PDF"];
     const rows = filtered.map((p) => [
       `"${p.title.replace(/"/g, '""')}"`,
       `"${p.studentName.replace(/"/g, '""')}"`,
       `"${p.career}"`,
       p.year,
       `"${(p.abstract || "").replace(/"/g, '""')}"`,
-      p.pdfUrl || "",
+      p.hasPdf ? "Sí" : "No",
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
@@ -264,10 +264,10 @@ export function AdminProjects({ projects, onDelete, onEdit }: Props) {
             <DialogTitle className="text-xl">Auditoría del Proyecto</DialogTitle>
             <p className="text-sm text-muted-foreground">{historyProject?.title}</p>
           </DialogHeader>
-          {historyProject?.pdfUrl && (
+          {historyProject?.hasPdf && (
             <div className="mb-4">
               <a
-                href={historyProject.pdfUrl}
+                href={pdfUrlFor(historyProject.id)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={buttonVariants({ variant: "outline", size: "sm" })}
@@ -281,7 +281,8 @@ export function AdminProjects({ projects, onDelete, onEdit }: Props) {
             <ProjectHistoryList
               projectId={historyProject.id}
               pdfVersions={pdfHistory}
-              onViewVersion={(url) => setViewVersionUrl(url)}
+              onViewVersion={(versionId) => setViewVersionUrl(pdfUrlFor(historyProject.id, versionId))}
+              downloadUrlFor={(versionId) => pdfUrlFor(historyProject.id, versionId, { download: true })}
             />
           )}
         </DialogContent>

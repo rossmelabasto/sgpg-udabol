@@ -54,9 +54,8 @@ export function BulkPdfUpload({ onSuccess }: { onSuccess?: () => void }) {
       const formData = new FormData();
       formData.append("pdf", file);
       const uploadRes = await fetch("/api/upload-pdf", { method: "POST", body: formData });
-      if (!uploadRes.ok) throw new Error(`Error al subir el PDF (${uploadRes.status})`);
-      const { url: pdfUrl } = await uploadRes.json();
-      if (!pdfUrl) throw new Error("No se recibió la URL del PDF subido");
+      const uploaded = await uploadRes.json();
+      if (!uploadRes.ok || !uploaded.path) throw new Error(uploaded.error || `Error al subir el PDF (${uploadRes.status})`);
 
       const result = await createProject({
         title: metadata.title,
@@ -64,7 +63,8 @@ export function BulkPdfUpload({ onSuccess }: { onSuccess?: () => void }) {
         career: metadata.career,
         year: parseInt(metadata.year, 10) || new Date().getFullYear(),
         abstract: metadata.abstract,
-        pdfUrl,
+        pdfPath: uploaded.path,
+        pdfFileName: file.name,
         tags: metadata.keywords ?? [],
       });
       if (!result.ok) throw new Error(result.error || "Error al crear el proyecto");

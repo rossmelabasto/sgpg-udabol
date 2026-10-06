@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
-import type { SearchResult } from "@/lib/projects"
+import { pdfUrlFor, type SearchResult } from "@/lib/projects"
 import { User, Calendar, GraduationCap, FileText, Tag } from "lucide-react"
 import { PdfViewerDialog } from "@/components/pdf-viewer-dialog"
 
@@ -22,7 +22,7 @@ export function ProjectCard({ project }: { project: SearchResult }) {
   return (
     <>
       <PdfViewerDialog
-        url={project.pdfUrl ?? null}
+        url={project.hasPdf ? pdfUrlFor(project.id) : null}
         open={showPdf}
         onOpenChange={setShowPdf}
         title={project.title}
@@ -76,7 +76,7 @@ export function ProjectCard({ project }: { project: SearchResult }) {
             <User className="size-4" aria-hidden="true" />
             {project.studentName}
           </span>
-          {project.pdfUrl && (
+          {project.hasPdf && (
             <button
               onClick={() => setShowPdf(true)}
               type="button"

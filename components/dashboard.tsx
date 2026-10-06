@@ -30,7 +30,7 @@ export function Dashboard() {
   }
 
   const total = projects.length;
-  const conPdf = projects.filter((p) => p.pdfUrl).length;
+  const conPdf = projects.filter((p) => p.hasPdf).length;
   const sinPdf = total - conPdf;
 
   const carreras: Record<string, number> = {};
@@ -128,11 +128,11 @@ export function Dashboard() {
               const maxCount = contributors[0]?.count || 1;
               const medals = ["text-amber-500", "text-slate-400", "text-orange-700"];
               return (
-                <div key={c.userRole} className="flex items-center gap-3">
+                <div key={c.name} className="flex items-center gap-3">
                   <span className={`text-lg font-bold w-6 ${medals[i] || "text-muted-foreground"}`}>
                     #{i + 1}
                   </span>
-                  <span className="flex-1 text-sm font-medium text-foreground capitalize">{c.userRole}</span>
+                  <span className="flex-1 text-sm font-medium text-foreground ">{c.name}</span>
                   <div className="flex-1 h-4 rounded-lg bg-muted overflow-hidden max-w-[200px]">
                     <div
                       className="h-full rounded-lg bg-chart-2 transition-all duration-500"

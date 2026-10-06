@@ -10,7 +10,13 @@ import { GraduationCap, LogIn, ShieldCheck, AlertCircle } from "lucide-react";
 
 // Firebase imports
 import { auth } from "@/lib/firebase/client";
-import { signInWithEmailAndPassword, signInAnonymously } from "firebase/auth";
+import { signInWithEmailAndPassword, signInAnonymously, signOut } from "firebase/auth";
+
+// Vuelve a la página que se quería abrir (solo rutas internas).
+function nextPath() {
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && n.startsWith("/") && !n.startsWith("//") ? n : "/";
+}
 
 export default function IngresarPage() {
   const router = useRouter();
@@ -24,10 +30,9 @@ export default function IngresarPage() {
         const userCredential = await signInAnonymously(auth);
         const idToken = await userCredential.user.getIdToken();
 
-        const res = await loginAction({ idToken, role: "anonymous" });
-        if (res?.success) {
-          router.push("/");
-        }
+        const res = await loginAction({ idToken });
+        if (res.success) router.push(nextPath());
+        else setError(res.error);
       } catch (err: any) {
         setError(err.message || "Error al ingresar como invitado");
       }
@@ -50,11 +55,11 @@ export default function IngresarPage() {
         );
         const idToken = await userCredential.user.getIdToken();
 
-        const res = await loginAction({ idToken, role: "admin" });
-        if (res?.success) {
-          router.push("/");
-        } else {
-          setError("Error al iniciar sesión. Verifica las credenciales.");
+        const res = await loginAction({ idToken });
+        if (res.success) router.push(nextPath());
+        else {
+          await signOut(auth).catch(() => {});
+          setError(res.error);
         }
       } catch (err: any) {
         setError("Credenciales incorrectas o usuario no encontrado.");

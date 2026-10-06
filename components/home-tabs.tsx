@@ -8,7 +8,7 @@ import { AdminUsers } from "@/components/admin-users";
 import { Dashboard } from "@/components/dashboard";
 import { BulkPdfUpload } from "@/components/bulk-pdf-upload";
 import { deleteProject, getProjects } from "@/app/actions/projects";
-import type { SearchResult } from "@/lib/projects";
+import type { SearchResult, UserRole } from "@/lib/projects";
 import {
   Search,
   FilePlus2,
@@ -26,11 +26,12 @@ export function HomeTabs({
   role,
 }: {
   initial: SearchResult[];
-  role: "anonymous" | "admin";
+  role: UserRole;
 }) {
   const [tab, setTabState] = useState<Tab>(() => {
     if (typeof window === "undefined") return "buscar";
-    return (sessionStorage.getItem("sgpg-tab") as Tab) || "buscar";
+    const saved = (sessionStorage.getItem("sgpg-tab") as Tab) || "buscar";
+    return saved === "usuarios" && role !== "superadmin" ? "buscar" : saved;
   });
 
   function setTab(next: Tab) {
@@ -68,9 +69,11 @@ export function HomeTabs({
         <TabButton active={tab === "admin"} onClick={() => setTab("admin")}>
           <FolderGit2 className="size-4.5" aria-hidden="true" /> Administrar
         </TabButton>
-        <TabButton active={tab === "usuarios"} onClick={() => { setEditingProject(null); setTab("usuarios"); }}>
-          <Users className="size-4.5" aria-hidden="true" /> Usuarios
-        </TabButton>
+        {role === "superadmin" && (
+          <TabButton active={tab === "usuarios"} onClick={() => { setEditingProject(null); setTab("usuarios"); }}>
+            <Users className="size-4.5" aria-hidden="true" /> Usuarios
+          </TabButton>
+        )}
         <TabButton active={tab === "dashboard"} onClick={() => { setEditingProject(null); setTab("dashboard"); }}>
           <BarChart3 className="size-4.5" aria-hidden="true" /> Estadísticas
         </TabButton>
@@ -102,7 +105,7 @@ export function HomeTabs({
             </h2>
             <Dashboard />
           </div>
-        ) : tab === "usuarios" ? (
+        ) : tab === "usuarios" && role === "superadmin" ? (
           <div className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
             <h2 className="mb-2 text-2xl font-bold text-card-foreground flex items-center gap-2">
               <Users className="size-6 text-primary" /> Gestión de Administradores

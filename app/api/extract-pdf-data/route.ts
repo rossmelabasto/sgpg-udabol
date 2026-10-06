@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSession, isAdminRole } from "@/lib/auth";
 
 function safeJsonParse(content: string): Record<string, unknown> {
   if (!content) return {};
@@ -18,10 +19,15 @@ function safeJsonParse(content: string): Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role)) {
+    return NextResponse.json({ error: "Solo los administradores pueden usar la extracción." }, { status: 403 });
+  }
+
   try {
     const { text } = await request.json();
 
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
     }
 

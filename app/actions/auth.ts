@@ -5,53 +5,57 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@/lib/projects";
 import { adminAuth } from "@/lib/firebase/admin";
-
-const SESSION_COOKIE = "udabol_session";
-const SESSION_MAX_DAYS = 14;
+import {
+  SESSION_COOKIE,
+  SESSION_MAX_DAYS,
+  findAdminRecord,
+  getSession,
+} from "@/lib/auth";
 
 export async function isLoggedIn() {
-  const store = await cookies();
-  return store.has(SESSION_COOKIE);
+  return (await getSession()) !== null;
 }
 
 export async function getUserRole(): Promise<UserRole> {
-  const store = await cookies();
-  const raw = store.get(SESSION_COOKIE)?.value;
-  if (!raw) return "anonymous";
-
-  // Formato: "sessionCookie|role"
-  const pipeIdx = raw.lastIndexOf("|");
-  if (pipeIdx === -1) return "anonymous";
-
-  const sessionCookie = raw.slice(0, pipeIdx);
-  const role = raw.slice(pipeIdx + 1);
-  if (!sessionCookie) return "anonymous";
-
-  try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, false);
-    if (!decoded?.uid) return "anonymous";
-    return role === "admin" ? "admin" : "anonymous";
-  } catch {
-    // Session expirada o inválida — login otra vez
-    return "anonymous";
-  }
+  return (await getSession())?.role ?? "anonymous";
 }
 
-export async function loginAction({
-  idToken,
-  role,
-}: {
-  idToken: string;
-  role: string;
-}) {
-  const store = await cookies();
+/** Datos públicos de la sesión para mostrar en la interfaz. */
+export async function getSessionInfo() {
+  const s = await getSession();
+  return s ? { role: s.role, email: s.email, name: s.name } : null;
+}
 
-  // Session cookie de Firebase: válida 14 días
+/**
+ * Crea la sesión a partir del idToken de Firebase. El rol NO lo manda el
+ * cliente: invitado si el token es anónimo; admin/superadmin solo si la
+ * cuenta está activa en la colección `admins`.
+ */
+export async function loginAction({ idToken }: { idToken: string }) {
+  let decoded;
+  try {
+    decoded = await adminAuth.verifyIdToken(idToken, true);
+  } catch {
+    return { success: false as const, error: "No se pudo verificar el inicio de sesión." };
+  }
+
+  const anonymous = decoded.firebase?.sign_in_provider === "anonymous";
+  if (!anonymous) {
+    const admin = await findAdminRecord(decoded.uid, decoded.email ?? null);
+    if (!admin) {
+      return {
+        success: false as const,
+        error: "Esta cuenta no tiene acceso de administrador o está desactivada.",
+      };
+    }
+  }
+
   const sessionCookie = await adminAuth.createSessionCookie(idToken, {
     expiresIn: SESSION_MAX_DAYS * 24 * 60 * 60 * 1000,
   });
 
-  store.set(SESSION_COOKIE, `${sessionCookie}|${role}`, {
+  const store = await cookies();
+  store.set(SESSION_COOKIE, sessionCookie, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -59,7 +63,7 @@ export async function loginAction({
     maxAge: SESSION_MAX_DAYS * 24 * 60 * 60,
   });
 
-  return { success: true };
+  return { success: true as const };
 }
 
 export async function logout() {

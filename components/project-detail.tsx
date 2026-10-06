@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PdfViewerDialog } from "@/components/pdf-viewer-dialog";
-import type { ThesisProject } from "@/lib/projects";
+import { pdfUrlFor, type ThesisProject } from "@/lib/projects";
 
 const CAREER_STYLES: Record<string, string> = {
   "Ingeniería en Sistemas": "bg-chart-1/10 text-chart-1 border-chart-1/20",
@@ -37,7 +37,7 @@ export function ProjectDetail({
   return (
     <>
       <PdfViewerDialog
-        url={project.pdfUrl ?? null}
+        url={project.hasPdf ? pdfUrlFor(project.id) : null}
         open={showPdf}
         onOpenChange={setShowPdf}
         title={project.title}
@@ -105,7 +105,7 @@ export function ProjectDetail({
 
         {/* Botones de acción */}
         <div className="mb-8 flex flex-wrap gap-3">
-          {project.pdfUrl && (
+          {project.hasPdf && (
             <>
               <Button
                 onClick={() => setShowPdf(true)}
@@ -116,7 +116,7 @@ export function ProjectDetail({
                 <FileText className="size-5" aria-hidden="true" />
                 Ver PDF
               </Button>
-              <a href={"/api/pdf-proxy?url=" + encodeURIComponent(project.pdfUrl)} target="_blank" rel="noreferrer" download>
+              <a href={pdfUrlFor(project.id, undefined, { download: true })} target="_blank" rel="noreferrer" download>
                 <Button
                   variant="outline"
                   size="lg"
@@ -128,7 +128,7 @@ export function ProjectDetail({
               </a>
             </>
           )}
-          {!project.pdfUrl && (
+          {!project.hasPdf && (
             <p className="text-sm italic text-muted-foreground">
               Este proyecto no tiene un PDF adjunto.
             </p>

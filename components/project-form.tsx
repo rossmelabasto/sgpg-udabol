@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createProject, updateProject } from "@/app/actions/projects";
-import { CARRERAS, type SearchResult } from "@/lib/projects";
+import { CARRERAS, pdfUrlFor, type SearchResult } from "@/lib/projects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,6 @@ type ProjectFormProps = {
     career?: string;
     year?: number;
     abstract?: string;
-    pdfUrl?: string | null;
   } | null;
 };
 
@@ -49,7 +48,8 @@ export function ProjectForm({
   const [career, setCareer] = useState("");
   const [year, setYear] = useState<number | "">("");
   const [abstract, setAbstract] = useState("");
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  // PDF recién subido en este formulario (aún no guardado en el proyecto).
+  const [newPdf, setNewPdf] = useState<{ path: string; fileName: string } | null>(null);
   const [tags, setTags] = useState("");
   const [feedback, setFeedback] = useState<{
     type: "ok" | "error";
@@ -62,7 +62,8 @@ export function ProjectForm({
     career: string;
     year: string;
     abstract: string;
-    pdfUrl: string;
+    pdfPath: string;
+    pdfFileName: string;
     keywords: string[];
   } | null>(null);
 
@@ -73,7 +74,7 @@ export function ProjectForm({
       setCareer(project.career);
       setYear(project.year);
       setAbstract(project.abstract);
-      setPdfUrl(project.pdfUrl ?? null);
+      setNewPdf(null);
       setTags((project.tags ?? []).join(", "));
     } else {
       setTitle("");
@@ -81,7 +82,7 @@ export function ProjectForm({
       setCareer("");
       setYear("");
       setAbstract("");
-      setPdfUrl(null);
+      setNewPdf(null);
       setTags("");
     }
   }, [project]);
@@ -93,7 +94,6 @@ export function ProjectForm({
     if (initialData.career !== undefined) setCareer(initialData.career);
     if (initialData.year !== undefined) setYear(initialData.year);
     if (initialData.abstract !== undefined) setAbstract(initialData.abstract);
-    if (initialData.pdfUrl !== undefined) setPdfUrl(initialData.pdfUrl ?? null);
   }, [initialData]);
 
   function handlePdfExtracted(data: {
@@ -102,7 +102,8 @@ export function ProjectForm({
     career: string;
     year: string;
     abstract: string;
-    pdfUrl: string;
+    pdfPath: string;
+    pdfFileName: string;
     keywords: string[];
   }) {
     setExtractedData(data);
@@ -116,7 +117,6 @@ export function ProjectForm({
     if (extractedData.career) setCareer(extractedData.career);
     if (extractedData.year) setYear(Number(extractedData.year));
     if (extractedData.abstract) setAbstract(extractedData.abstract);
-    if (extractedData.pdfUrl) setPdfUrl(extractedData.pdfUrl);
     if (extractedData.keywords && extractedData.keywords.length > 0) {
       setTags(extractedData.keywords.join(", "));
     }
@@ -150,7 +150,7 @@ export function ProjectForm({
     }
 
     startTransition(async () => {
-      const payload = { title, studentName, career, year: year as number, abstract, pdfUrl, tags: tags.split(",").map((t) => t.trim()).filter(Boolean) };
+      const payload = { title, studentName, career, year: year as number, abstract, tags: tags.split(",").map((t) => t.trim()).filter(Boolean), ...(newPdf ? { pdfPath: newPdf.path, pdfFileName: newPdf.fileName } : {}) };
 
       // Aseguramos que si es modo edit, el ID se pase como string explícitamente
       const res =
@@ -172,9 +172,9 @@ export function ProjectForm({
           setCareer("");
           setYear("");
           setAbstract("");
-          setPdfUrl(null);
           setTags("");
         }
+        setNewPdf(null);
         router.refresh();
         onSuccess?.(destinationTab);
       } else {
@@ -207,8 +207,8 @@ export function ProjectForm({
       >
         <PdfUpload
           onExtracted={handlePdfExtracted}
-          onUploadComplete={setPdfUrl}
-          existingPdfUrl={pdfUrl}
+          onUploadComplete={setNewPdf}
+          existingPdfUrl={newPdf ? `${pdfUrlFor("_subida")}?path=${encodeURIComponent(newPdf.path)}` : project?.hasPdf ? pdfUrlFor(project.id) : null}
           onLoadingChange={setPdfLoading}
           projectId={project?.id ?? null}
         />

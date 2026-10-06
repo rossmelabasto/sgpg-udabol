@@ -16,7 +16,8 @@ import {
 type Props = {
   projectId: string;
   pdfVersions?: PdfVersion[];
-  onViewVersion?: (url: string) => void;
+  onViewVersion?: (versionId: string) => void;
+  downloadUrlFor?: (versionId: string) => string;
 };
 
 // Formato de fecha/hora consistente (12h con a. m./p. m.)
@@ -58,7 +59,7 @@ type TimelineItem =
   | { type: "log"; time: string; data: ProjectHistoryLog }
   | { type: "pdf"; time: string; data: PdfVersion };
 
-export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion }: Props) {
+export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion, downloadUrlFor }: Props) {
   const [logs, setLogs] = useState<ProjectHistoryLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -119,7 +120,7 @@ export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion 
                 </div>
                 <div className="flex flex-col gap-1 pt-1.5">
                   <p className="text-sm font-medium text-foreground">
-                    Versión de PDF
+                    PDF versión {v.version}{v.id === "actual" ? " (vigente)" : ""}
                   </p>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{formatTime(v.uploadedAt)}</span>
@@ -127,14 +128,14 @@ export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion 
                     {onViewVersion && (
                       <button
                         type="button"
-                        onClick={() => onViewVersion(v.url)}
+                        onClick={() => onViewVersion(v.id)}
                         className="font-medium text-primary hover:underline"
                       >
                         Ver
                       </button>
                     )}
                     <a
-                      href={"/api/pdf-proxy?url=" + encodeURIComponent(v.url)}
+                      href={downloadUrlFor ? downloadUrlFor(v.id) : "#"}
                       target="_blank"
                       rel="noreferrer"
                       className="font-medium text-primary hover:underline"
@@ -148,7 +149,7 @@ export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion 
           }
 
           const log = item.data;
-          const Style = actionStyles[log.action] || {
+          const Style = actionStyles[log.action as keyof typeof actionStyles] || {
             icon: Activity,
             color: "text-muted-foreground",
             bg: "bg-muted",
@@ -168,7 +169,7 @@ export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion 
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{formatTime(log.timestamp)}</span>
                   <span>•</span>
-                  <span className="capitalize">Por: {log.userRole}</span>
+                  <span>Por: {log.actorName || log.actorEmail || log.userRole}</span>
                 </div>
               </div>
             </div>

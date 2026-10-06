@@ -11,13 +11,15 @@ type ExtractedPdfData = {
   career: string;
   year: string;
   abstract: string;
-  pdfUrl: string;
+  pdfPath: string;
+  pdfFileName: string;
   keywords: string[];
 };
 
 type Props = {
   onExtracted: (data: ExtractedPdfData) => void;
-  onUploadComplete: (url: string) => void;
+  onUploadComplete: (upload: { path: string; fileName: string }) => void;
+  /** URL para ver el PDF actual o recién subido. */
   existingPdfUrl?: string | null;
   onLoadingChange?: (loading: boolean) => void;
   projectId?: string | null;
@@ -59,12 +61,14 @@ export function PdfUpload({
         throw new Error(uploadResult.error || "No se pudo subir el PDF.");
       }
 
-      onUploadComplete(uploadResult.url);
+      onUploadComplete({ path: uploadResult.path, fileName: file.name });
       const data = await extractPdfData(file);
-      onExtracted({ ...data, pdfUrl: uploadResult.url });
+      onExtracted({ ...data, pdfPath: uploadResult.path, pdfFileName: file.name });
     } catch (err) {
       setError(
-        "No se pudo procesar el PDF automáticamente. Intenta con otro archivo o completa los campos manualmente.",
+        err instanceof Error && err.message
+          ? err.message
+          : "No se pudo procesar el PDF automáticamente. Intenta con otro archivo o completa los campos manualmente.",
       );
       console.error(err);
     } finally {
@@ -105,7 +109,7 @@ export function PdfUpload({
             rel="noreferrer"
             className="underline hover:text-emerald-700"
           >
-            PDF guardado correctamente
+            Ver PDF
           </a>
         </div>
       )}

@@ -1,665 +1,465 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FieldValue } from "firebase-admin/firestore";
 import {
   CARRERAS,
   type SearchResult,
   type ThesisProject,
-  type NewThesisProject,
-  ProjectHistoryLog,
-  PdfVersion,
+  type ProjectInput,
+  type ProjectHistoryLog,
+  type PdfVersion,
+  type AuditActionType,
 } from "@/lib/projects";
 import { adminDb } from "@/lib/firebase/admin";
-import { getUserRole } from "@/app/actions/auth";
+import {
+  requireAdmin,
+  requireSession,
+  requireSuperadmin,
+  actorOf,
+  AuthError,
+  type Session,
+} from "@/lib/auth";
+import { searchInMemory, type SearchFilters } from "@/lib/search";
+import { deletePdf, isValidPdfPath, pdfExists, resolvePdfPath } from "@/lib/pdf-storage";
 
-async function ensureAdmin() {
-  const role = await getUserRole();
-  return role === "admin";
+type Result = { ok: true; id?: string } | { ok: false; error: string };
+
+function fail(err: unknown, fallback: string): Result {
+  if (err instanceof AuthError) return { ok: false, error: err.message };
+  console.error(fallback, err);
+  return { ok: false, error: fallback };
 }
 
-export interface PaginatedResult<T> {
-  items: T[];
-  hasMore: boolean;
+// ---------------------------------------------------------------------------
+// Lectura
+// ---------------------------------------------------------------------------
+
+function docToProject(id: string, data: FirebaseFirestore.DocumentData): ThesisProject {
+  return {
+    id,
+    title: data.title ?? "",
+    studentName: data.studentName ?? "",
+    career: data.career ?? "",
+    year: Number(data.year) || 0,
+    abstract: data.abstract ?? "",
+    tags: (data.tags as string[]) ?? [],
+    hasPdf: !!resolvePdfPath(data),
+    createdAt: data.createdAt ?? "",
+    updatedAt: data.updatedAt ?? null,
+    deleted: !!data.deleted,
+    deletedAt: data.deletedAt ?? null,
+  };
 }
 
-const PAGE_SIZE = 20;
+async function loadProjects(): Promise<ThesisProject[]> {
+  const snapshot = await adminDb.collection("projects").orderBy("createdAt", "desc").get();
+  return snapshot.docs.map((d) => docToProject(d.id, d.data()));
+}
 
-export async function getProjects(includeDeleted: boolean = false): Promise<ThesisProject[]> {
+export async function getProjects(): Promise<ThesisProject[]> {
   try {
-    const snapshot = await adminDb
-      .collection("projects")
-      .orderBy("createdAt", "desc")
-      .get();
-
-    const projects = snapshot.docs.map((doc: any) => {
-      const data = doc.data() as any;
-      return {
-        id: doc.id,
-        title: data.title as string,
-        studentName: data.studentName as string,
-        career: data.career as string,
-        year: data.year as number,
-        abstract: data.abstract as string,
-        tags: (data.tags as string[]) ?? [],
-        pdfUrl: data.pdfUrl as string | null | undefined,
-        userId: data.userId as string | null | undefined,
-        createdAt: data.createdAt as string,
-        deleted: data.deleted as boolean | undefined,
-        deletedAt: data.deletedAt as string | null | undefined,
-      };
-    });
-
-    if (!includeDeleted) {
-      return projects.filter((p) => !p.deleted);
-    }
-    return projects;
+    await requireSession();
+    return (await loadProjects()).filter((p) => !p.deleted);
   } catch (err) {
-    console.error("Error obteniendo proyectos de Firestore:", err);
+    if (!(err instanceof AuthError)) console.error("Error obteniendo proyectos:", err);
     return [];
   }
 }
 
-export async function getProjectsPaginated(
-  lastDocId?: string,
-  pageSize: number = PAGE_SIZE,
-  includeDeleted: boolean = false
-): Promise<PaginatedResult<ThesisProject>> {
+export async function getProjectById(projectId: string): Promise<ThesisProject | null> {
   try {
-    let query = adminDb
-      .collection("projects")
-      .orderBy("createdAt", "desc")
-      .limit(pageSize + 1);
-
-    if (lastDocId) {
-      const lastDoc = await adminDb.collection("projects").doc(lastDocId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
-      }
-    }
-
-    const snapshot = await query.get();
-    const hasMore = snapshot.docs.length > pageSize;
-    const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
-
-    const projects = docs.map((doc) => {
-      const data = doc.data() as any;
-      return {
-        id: doc.id,
-        title: data.title as string,
-        studentName: data.studentName as string,
-        career: data.career as string,
-        year: data.year as number,
-        abstract: data.abstract as string,
-        tags: (data.tags as string[]) ?? [],
-        pdfUrl: data.pdfUrl as string | null | undefined,
-        userId: data.userId as string | null | undefined,
-        createdAt: data.createdAt as string,
-        deleted: data.deleted as boolean | undefined,
-        deletedAt: data.deletedAt as string | null | undefined,
-      };
-    });
-
-    const filtered = includeDeleted ? projects : projects.filter((p) => !p.deleted);
-    return { items: filtered, hasMore };
+    await requireSession();
+    const doc = await adminDb.collection("projects").doc(projectId).get();
+    if (!doc.exists || doc.data()!.deleted) return null;
+    return docToProject(doc.id, doc.data()!);
   } catch (err) {
-    console.error("Error obteniendo proyectos paginados:", err);
-    return { items: [], hasMore: false };
+    if (!(err instanceof AuthError)) console.error("Error obteniendo proyecto:", err);
+    return null;
   }
 }
 
+export async function searchProjects(query: string, filters?: SearchFilters): Promise<SearchResult[]> {
+  const all = await getProjects();
+  return searchInMemory(all, query, filters);
+}
+
+// ---------------------------------------------------------------------------
+// Auditoría
+// ---------------------------------------------------------------------------
+
 async function addHistoryLog(
+  session: Session,
   projectId: string,
-  action: "CREATE" | "UPDATE" | "DELETE" | "RESTORE" | "PDF_UPLOAD",
+  projectTitle: string,
+  action: AuditActionType,
   details: string,
 ) {
   try {
-    const role = await getUserRole();
-    await adminDb
-      .collection("projects")
-      .doc(projectId)
-      .collection("history")
-      .add({
-        projectId,
-        action,
-        details,
-        timestamp: new Date().toISOString(),
-        userRole: role,
-      });
+    const entry = {
+      projectId,
+      projectTitle,
+      action,
+      details,
+      timestamp: new Date().toISOString(),
+      ...actorOf(session),
+    };
+    const batch = adminDb.batch();
+    if (action !== "PURGE") {
+      batch.set(adminDb.collection("projects").doc(projectId).collection("history").doc(), entry);
+    }
+    // Registro global: sobrevive aunque el proyecto se borre definitivamente.
+    batch.set(adminDb.collection("auditLog").doc(), entry);
+    await batch.commit();
   } catch (err) {
     console.error("Error guardando el historial:", err);
   }
 }
 
-export async function createProject(input: {
-  title: string;
-  studentName: string;
-  career: string;
-  year: number;
-  abstract: string;
-  pdfUrl?: string | null;
-  tags?: string[];
-}) {
-  const title = input.title.trim();
-  const studentName = input.studentName.trim();
-  const career = input.career.trim();
-  const abstract = input.abstract.trim();
-  const tags = (input.tags ?? []).map((t) => t.trim()).filter(Boolean);
-
-  if (!title || !studentName || !career) {
-    return {
-      ok: false as const,
-      error: "El título, el nombre del alumno y la carrera son obligatorios.",
-    };
-  }
-  if (!CARRERAS.includes(career as any)) {
-    return {
-      ok: false as const,
-      error: "La carrera seleccionada no es válida.",
-    };
-  }
-  if (!Number.isInteger(input.year) || input.year < 1980 || input.year > 2100) {
-    return { ok: false as const, error: "El año no es válido." };
-  }
-  if (!(await ensureAdmin())) {
-    return {
-      ok: false as const,
-      error: "Solo los administradores pueden registrar proyectos.",
-    };
-  }
-
+export async function getProjectHistory(projectId: string): Promise<ProjectHistoryLog[]> {
   try {
-    const newProject: NewThesisProject = {
-      title: input.title.trim(),
-      studentName: input.studentName.trim(),
-      career: input.career.trim(),
-      year: input.year,
-      abstract: input.abstract.trim(),
-      tags,
-      pdfUrl: input.pdfUrl ?? null,
-    };
-
-    const docRef = await adminDb.collection("projects").add({
-      ...newProject,
-      createdAt: new Date().toISOString(),
-      deleted: false,
-      deletedAt: null,
-    });
-
-    await addHistoryLog(
-      docRef.id,
-      "CREATE",
-      "Proyecto creado. Alumno: " + newProject.studentName,
-    );
-
-    revalidatePath("/");
-    return { ok: true as const };
-  } catch (err) {
-    console.error("Error al crear proyecto en Firestore:", err);
-    return {
-      ok: false as const,
-      error: "No se pudo guardar el proyecto en la nube.",
-    };
-  }
-}
-
-export async function updateProject(
-  id: string,
-  input: {
-    title: string;
-    studentName: string;
-    career: string;
-    year: number;
-    abstract: string;
-    pdfUrl?: string | null;
-    tags?: string[];
-  },
-) {
-  if (!(await ensureAdmin())) {
-    return {
-      ok: false as const,
-      error: "Solo los administradores pueden editar proyectos.",
-    };
-  }
-
-  try {
-    const docRef = adminDb.collection("projects").doc(id);
-    const oldDoc = await docRef.get();
-
-    if (!oldDoc.exists) {
-      return { ok: false as const, error: "El proyecto no existe." };
-    }
-
-    const oldData = oldDoc.data() as any;
-    const changes: string[] = [];
-
-    if (oldData.title !== input.title) changes.push("Título modificado");
-    if (oldData.studentName !== input.studentName)
-      changes.push("Autor modificado");
-    if (oldData.abstract !== input.abstract)
-      changes.push("Resumen actualizado");
-    if (oldData.pdfUrl !== input.pdfUrl) {
-      changes.push(input.pdfUrl ? "PDF subido/actualizado" : "PDF eliminado");
-    }
-    const newTags = (input.tags ?? []).map((t) => t.trim()).filter(Boolean);
-    const oldTags = (oldData.tags as string[]) ?? [];
-    if (JSON.stringify(oldTags.sort()) !== JSON.stringify(newTags.sort())) {
-      changes.push("Etiquetas actualizadas");
-    }
-
-    if (changes.length === 0) {
-      return { ok: true as const };
-    }
-
-    await docRef.update({
-      title: input.title,
-      studentName: input.studentName,
-      career: input.career,
-      year: input.year,
-      abstract: input.abstract,
-      tags: newTags,
-      pdfUrl: input.pdfUrl ?? null,
-    });
-
-    const actionType =
-      oldData.pdfUrl !== input.pdfUrl ? "PDF_UPLOAD" : "UPDATE";
-    await addHistoryLog(id, actionType as any, changes.join(", "));
-
-    revalidatePath("/");
-    return { ok: true as const };
-  } catch (err) {
-    console.error("Error al actualizar proyecto en Firestore:", err);
-    return { ok: false as const, error: "No se pudo actualizar el proyecto." };
-  }
-}
-
-export async function getProjectHistory(
-  projectId: string,
-): Promise<ProjectHistoryLog[]> {
-  try {
+    await requireAdmin();
     const snapshot = await adminDb
       .collection("projects")
       .doc(projectId)
       .collection("history")
       .orderBy("timestamp", "desc")
       .get();
-
-    return snapshot.docs.map(
-      (doc: any) => ({
-        id: doc.id,
-        ...(doc.data() as Omit<ProjectHistoryLog, "id">),
-      }),
-    );
-  } catch (err) {
-    console.error("Error obteniendo el historial:", err);
-    return [];
-  }
-}
-
-export async function deleteProject(id: string) {
-  if (!(await ensureAdmin())) {
-    return {
-      ok: false as const,
-      error: "Solo los administradores pueden eliminar proyectos.",
-    };
-  }
-
-  try {
-    await adminDb.collection("projects").doc(id).update({
-      deleted: true,
-      deletedAt: new Date().toISOString(),
-    });
-
-    await addHistoryLog(id, "DELETE" as any, "Proyecto eliminado (soft delete)");
-
-    revalidatePath("/");
-    return { ok: true as const };
-  } catch (err) {
-    console.error("Error al eliminar proyecto:", err);
-    return { ok: false as const, error: "No se pudo eliminar el proyecto." };
-  }
-}
-
-export async function permanentlyDeleteProject(id: string) {
-  if (!(await ensureAdmin())) {
-    return {
-      ok: false as const,
-      error: "Solo los administradores pueden eliminar proyectos permanentemente.",
-    };
-  }
-
-  try {
-    const historySnapshot = await adminDb
-      .collection("projects")
-      .doc(id)
-      .collection("history")
-      .get();
-
-    const batch = adminDb.batch();
-    historySnapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    batch.delete(adminDb.collection("projects").doc(id));
-    await batch.commit();
-
-    revalidatePath("/");
-    return { ok: true as const };
-  } catch (err) {
-    console.error("Error al eliminar proyecto permanentemente:", err);
-    return { ok: false as const, error: "No se pudo eliminar permanentemente." };
-  }
-}
-
-export async function restoreProject(id: string) {
-  if (!(await ensureAdmin())) {
-    return {
-      ok: false as const,
-      error: "Solo los administradores pueden restaurar proyectos.",
-    };
-  }
-
-  try {
-    await adminDb.collection("projects").doc(id).update({
-      deleted: false,
-      deletedAt: null,
-    });
-
-    await addHistoryLog(id, "RESTORE" as any, "Proyecto restaurado");
-
-    revalidatePath("/");
-    return { ok: true as const };
-  } catch (err) {
-    console.error("Error al restaurar proyecto:", err);
-    return { ok: false as const, error: "No se pudo restaurar el proyecto." };
-  }
-}
-
-export async function getDeletedProjects(): Promise<ThesisProject[]> {
-  if (!(await ensureAdmin())) {
-    return [];
-  }
-
-  try {
-    const snapshot = await adminDb
-      .collection("projects")
-      .where("deleted", "==", true)
-      .orderBy("deletedAt", "desc")
-      .get();
-
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data() as any;
-      return {
-        id: doc.id,
-        title: data.title as string,
-        studentName: data.studentName as string,
-        career: data.career as string,
-        year: data.year as number,
-        abstract: data.abstract as string,
-        tags: (data.tags as string[]) ?? [],
-        pdfUrl: data.pdfUrl as string | null | undefined,
-        userId: data.userId as string | null | undefined,
-        createdAt: data.createdAt as string,
-        deleted: data.deleted as boolean | undefined,
-        deletedAt: data.deletedAt as string | null | undefined,
-      };
-    });
-  } catch (err) {
-    console.error("Error obteniendo proyectos eliminados:", err);
-    return [];
-  }
-}
-
-export async function getPdfHistory(
-  projectId: string
-): Promise<PdfVersion[]> {
-  try {
-    const snapshot = await adminDb
-      .collection("projects")
-      .doc(projectId)
-      .collection("pdfHistory")
-      .orderBy("uploadedAt", "desc")
-      .get();
-
     return snapshot.docs.map((doc) => {
-      const data = doc.data() as any;
+      const d = doc.data();
       return {
         id: doc.id,
-        url: data.url as string,
-        uploadedAt: data.uploadedAt as string,
+        projectId: d.projectId,
+        action: d.action,
+        details: d.details,
+        timestamp: d.timestamp,
+        userRole: d.userRole,
+        actorEmail: d.actorEmail ?? null,
+        actorName: d.actorName ?? null,
       };
     });
   } catch (err) {
-    console.error("Error obteniendo historial de PDFs:", err);
+    if (!(err instanceof AuthError)) console.error("Error obteniendo el historial:", err);
+    return [];
+  }
+}
+
+/** Actividad reciente de todo el sistema (superadmin). */
+export async function getRecentActivity(limit = 40): Promise<(ProjectHistoryLog & { projectTitle?: string })[]> {
+  try {
+    await requireSuperadmin();
+    const snap = await adminDb.collection("auditLog").orderBy("timestamp", "desc").limit(limit).get();
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        projectId: d.projectId,
+        projectTitle: d.projectTitle,
+        action: d.action,
+        details: d.details,
+        timestamp: d.timestamp,
+        userRole: d.userRole,
+        actorEmail: d.actorEmail ?? null,
+        actorName: d.actorName ?? null,
+      };
+    });
+  } catch (err) {
+    if (!(err instanceof AuthError)) console.error("Error obteniendo actividad:", err);
     return [];
   }
 }
 
 export interface TopContributor {
-  userRole: string;
+  name: string;
   count: number;
 }
 
-/**
- * Obtiene el top N usuarios que más cambios hicieron
- * consultando la subcolección "history" de todos los proyectos.
- */
-export async function getTopContributors(limit: number = 3): Promise<TopContributor[]> {
+/** Quiénes hicieron más cambios (según el registro global de auditoría). */
+export async function getTopContributors(limit = 5): Promise<TopContributor[]> {
   try {
-    // Obtenemos todos los proyectos para acceder a sus subcolecciones
-    const projectsSnapshot = await adminDb
-      .collection("projects")
-      .select() // solo IDs
-      .get();
-
-    const roleCount: Record<string, number> = {};
-
-    // Para cada proyecto, leemos su subcolección history
-    const promises = projectsSnapshot.docs.map(async (projectDoc) => {
-      try {
-        const historySnapshot = await projectDoc.ref
-          .collection("history")
-          .get();
-        historySnapshot.docs.forEach((historyDoc) => {
-          const data = historyDoc.data();
-          const role = (data.userRole as string) || "unknown";
-          roleCount[role] = (roleCount[role] || 0) + 1;
-        });
-      } catch {
-        // Ignorar proyectos sin subcolección history
-      }
+    await requireAdmin();
+    const snap = await adminDb.collection("auditLog").select("actorName", "actorEmail").get();
+    const counts: Record<string, number> = {};
+    snap.docs.forEach((d) => {
+      const k = (d.get("actorName") as string) || (d.get("actorEmail") as string) || "Sin registrar";
+      counts[k] = (counts[k] || 0) + 1;
     });
-
-    await Promise.all(promises);
-
-    return Object.entries(roleCount)
+    return Object.entries(counts)
       .sort(([, a], [, b]) => b - a)
       .slice(0, limit)
-      .map(([userRole, count]) => ({ userRole, count }));
+      .map(([name, count]) => ({ name, count }));
   } catch (err) {
-    console.error("Error obteniendo top contributors:", err);
+    if (!(err instanceof AuthError)) console.error("Error obteniendo top contributors:", err);
     return [];
   }
 }
 
-export async function getProjectById(
-  projectId: string
-): Promise<ThesisProject | null> {
+// ---------------------------------------------------------------------------
+// Escritura
+// ---------------------------------------------------------------------------
+
+function cleanInput(input: ProjectInput) {
+  const title = (input.title ?? "").replace(/\s+/g, " ").trim();
+  const studentName = (input.studentName ?? "").replace(/\s+/g, " ").trim();
+  const career = (input.career ?? "").trim();
+  const abstract = (input.abstract ?? "").trim();
+  const tags = [
+    ...new Set(
+      (input.tags ?? [])
+        .map((t) => t.replace(/\s+/g, " ").trim())
+        .filter((t) => t && t.length <= 40),
+    ),
+  ].slice(0, 12);
+  const year = Number(input.year);
+
+  if (!title || !studentName || !career) {
+    return { error: "El título, el nombre del alumno y la carrera son obligatorios." } as const;
+  }
+  if (title.length > 400) return { error: "El título es demasiado largo." } as const;
+  if (!CARRERAS.includes(career as (typeof CARRERAS)[number])) {
+    return { error: "La carrera seleccionada no es válida." } as const;
+  }
+  const maxYear = new Date().getFullYear() + 1;
+  if (!Number.isInteger(year) || year < 1990 || year > maxYear) {
+    return { error: `El año debe estar entre 1990 y ${maxYear}.` } as const;
+  }
+  if (abstract.length > 6000) return { error: "El resumen es demasiado largo." } as const;
+  return { value: { title, studentName, career, year, abstract, tags } } as const;
+}
+
+async function checkNewPdf(pdfPath: string | null | undefined) {
+  if (pdfPath === undefined || pdfPath === null) return null;
+  if (!isValidPdfPath(pdfPath) || !(await pdfExists(pdfPath))) {
+    return "El PDF subido no se encontró. Vuelve a subirlo.";
+  }
+  return null;
+}
+
+export async function createProject(input: ProjectInput & { pdfFileName?: string | null }): Promise<Result> {
   try {
-    const doc = await adminDb.collection("projects").doc(projectId).get();
-    if (!doc.exists) return null;
-    const data = doc.data() as any;
-    if (data.deleted) return null;
-    return {
-      id: doc.id,
-      title: data.title as string,
-      studentName: data.studentName as string,
-      career: data.career as string,
-      year: data.year as number,
-      abstract: data.abstract as string,
-      tags: (data.tags as string[]) ?? [],
-      pdfUrl: data.pdfUrl as string | null | undefined,
-      userId: data.userId as string | null | undefined,
-      createdAt: data.createdAt as string,
-    };
-  } catch (err) {
-    console.error("Error obteniendo proyecto por ID:", err);
-    return null;
-  }
-}
+    const session = await requireAdmin();
+    const cleaned = cleanInput(input);
+    if ("error" in cleaned) return { ok: false, error: cleaned.error! };
+    const pdfError = await checkNewPdf(input.pdfPath);
+    if (pdfError) return { ok: false, error: pdfError };
 
-/**
- * Normaliza texto para búsqueda: quita tildes, mayúsculas y caracteres especiales
- */
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // quita tildes
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Calcula distancia de Levenshtein simple entre dos strings
- */
-function levenshtein(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
-/**
- * Tokeniza el texto en palabras clave individuales
- */
-function tokenize(text: string): string[] {
-  return normalize(text).split(/\s+/).filter(Boolean);
-}
-
-// Stopwords (es + en) para no matchear palabras vacías como "de", "el",
-// "la", "que", etc. en la búsqueda por tokens.
-const STOPWORDS = new Set([
-  "de", "del", "el", "la", "los", "las", "un", "una", "unos", "unas",
-  "en", "con", "por", "para", "que", "y", "e", "o", "u", "a", "al",
-  "es", "son", "se", "su", "sus", "lo", "le", "como", "mas", "más",
-  "este", "esta", "estos", "estas", "entre", "cada", "todo", "todos",
-  "sobre", "sin", "ha", "han", "ser", "tiene", "tienen", "fue", "fueron",
-  "the", "of", "and", "in", "to", "a", "is", "for", "with", "on", "an",
-]);
-
-export async function searchProjects(
-  query: string,
-  filters?: {
-    career?: string;
-    yearFrom?: number;
-    yearTo?: number;
-  }
-): Promise<SearchResult[]> {
-  const q = query.trim();
-  const allProjects = await getProjects();
-
-  // Aplicar filtros previos (se aplican ANTES de la búsqueda por texto)
-  let filtered = allProjects;
-  if (filters?.career) {
-    filtered = filtered.filter((p) => p.career === filters.career);
-  }
-  if (filters?.yearFrom !== undefined) {
-    filtered = filtered.filter((p) => Number(p.year) >= filters.yearFrom!);
-  }
-  if (filters?.yearTo !== undefined) {
-    filtered = filtered.filter((p) => Number(p.year) <= filters.yearTo!);
-  }
-
-  if (!q) {
-    return filtered.map((p) => ({ ...p, score: 0 }));
-  }
-
-  const normalizedQuery = normalize(q);
-  const queryTokens = tokenize(q);
-
-  const results = filtered
-    .map((project) => {
-      const title = normalize(project.title);
-      const abstract = normalize(project.abstract || "");
-      const studentName = normalize(project.studentName);
-      const career = normalize(project.career);
-      const tagsText = normalize((project.tags ?? []).join(" "));
-      const allText = `${title} ${abstract} ${studentName} ${career} ${tagsText}`;
-
-      let score = 0;
-
-      // 1. Coincidencia exacta del query en el título (máxima prioridad)
-      if (title.includes(normalizedQuery)) {
-        score += 50;
-      }
-
-      // 2. Coincidencia exacta en nombre del alumno
-      if (studentName.includes(normalizedQuery)) {
-        score += 40;
-      }
-
-      // 3. Coincidencia exacta en texto completo
-      if (allText.includes(normalizedQuery)) {
-        score += 30;
-      }
-
-      // 4. Coincidencia por tokens individuales (permite búsqueda parcial)
-      let tokenMatches = 0;
-      for (const token of queryTokens) {
-        if (token.length < 2 || STOPWORDS.has(token)) continue; // ignora tokens cortos/stopwords
-
-        // Palabras completas
-        const tokenRegex = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        if (tokenRegex.test(title)) tokenMatches += 10;
-        else if (tokenRegex.test(abstract)) tokenMatches += 5;
-        else if (tokenRegex.test(studentName)) tokenMatches += 3;
-        else if (tokenRegex.test(career)) tokenMatches += 2;
-        else if (tokenRegex.test(tagsText)) tokenMatches += 4;
-
-        // Fuzzy match: palabras que contengan el token
-        if (title.includes(token)) tokenMatches += 2;
-        if (abstract.includes(token)) tokenMatches += 1;
-      }
-      score += tokenMatches;
-
-      // 5. Fuzzy match Levenshtein: SOLO como bonus de ranking para proyectos
-      //    que YA coinciden (nunca como motivo de inclusión). Así evitamos
-      //    falsos positivos tipo "campo" ≈ "como" en proyectos irrelevantes.
-      if (score > 0) {
-        for (const token of queryTokens) {
-          if (token.length < 4) continue;
-          const projectTokens = tokenize(allText);
-          for (const pt of projectTokens) {
-            if (pt.length < 4) continue;
-            const dist = levenshtein(token, pt);
-            const maxLen = Math.max(token.length, pt.length);
-            if (dist <= 1) {
-              score += 10; // 1 error de tipeo
-            } else if (dist === 2 && maxLen >= 7) {
-              score += 4; // 2 errores solo en palabras largas
-            }
-          }
-        }
-      }
-
-      return { ...project, score };
-    })
-    .filter((project) => project.score > 0)
-    .sort((a, b) => {
-      // Ordenar por score descendente, luego año descendente
-      const scoreDiff = b.score - a.score;
-      if (scoreDiff !== 0) return scoreDiff;
-      return b.year - a.year;
+    const now = new Date().toISOString();
+    const docRef = await adminDb.collection("projects").add({
+      ...cleaned.value,
+      pdfPath: input.pdfPath ?? null,
+      pdfFileName: input.pdfPath ? input.pdfFileName ?? null : null,
+      pdfUploadedAt: input.pdfPath ? now : null,
+      pdfVersion: input.pdfPath ? 1 : 0,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: session.email ?? session.uid,
+      deleted: false,
+      deletedAt: null,
     });
 
-  return results;
+    await addHistoryLog(
+      session,
+      docRef.id,
+      cleaned.value.title,
+      "CREATE",
+      `Proyecto creado. Alumno: ${cleaned.value.studentName}${input.pdfPath ? " (con PDF, versión 1)" : ""}`,
+    );
+    revalidatePath("/");
+    return { ok: true, id: docRef.id };
+  } catch (err) {
+    return fail(err, "No se pudo guardar el proyecto.");
+  }
+}
+
+export async function updateProject(
+  id: string,
+  input: ProjectInput & { pdfFileName?: string | null },
+): Promise<Result> {
+  try {
+    const session = await requireAdmin();
+    const cleaned = cleanInput(input);
+    if ("error" in cleaned) return { ok: false, error: cleaned.error! };
+    const pdfError = await checkNewPdf(input.pdfPath);
+    if (pdfError) return { ok: false, error: pdfError };
+
+    const docRef = adminDb.collection("projects").doc(id);
+    const oldDoc = await docRef.get();
+    if (!oldDoc.exists) return { ok: false, error: "El proyecto no existe." };
+    const old = oldDoc.data()!;
+    const v = cleaned.value;
+
+    const changes: string[] = [];
+    if (old.title !== v.title) changes.push("título");
+    if (old.studentName !== v.studentName) changes.push("autor");
+    if (old.career !== v.career) changes.push("carrera");
+    if (Number(old.year) !== v.year) changes.push("año");
+    if ((old.abstract ?? "") !== v.abstract) changes.push("resumen");
+    const oldTags = [...((old.tags as string[]) ?? [])].sort();
+    if (JSON.stringify(oldTags) !== JSON.stringify([...v.tags].sort())) changes.push("etiquetas");
+
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = { ...v, updatedAt: now };
+    const batch = adminDb.batch();
+    let pdfNote = "";
+
+    const currentPath = resolvePdfPath(old);
+    if (input.pdfPath !== undefined && input.pdfPath !== currentPath) {
+      const currentVersion = Number(old.pdfVersion) || (currentPath ? 1 : 0);
+      if (currentPath) {
+        // La versión vigente pasa al historial de versiones.
+        batch.set(docRef.collection("pdfHistory").doc(), {
+          path: currentPath,
+          version: currentVersion,
+          fileName: old.pdfFileName ?? null,
+          uploadedAt: old.pdfUploadedAt ?? old.createdAt ?? null,
+          replacedAt: now,
+        });
+      }
+      if (input.pdfPath) {
+        updates.pdfPath = input.pdfPath;
+        updates.pdfFileName = input.pdfFileName ?? null;
+        updates.pdfUploadedAt = now;
+        updates.pdfVersion = currentVersion + 1;
+        pdfNote = `Nueva versión del PDF (v${currentVersion + 1})`;
+      } else {
+        updates.pdfPath = null;
+        updates.pdfFileName = null;
+        updates.pdfUploadedAt = null;
+        pdfNote = "PDF quitado (queda en el historial de versiones)";
+      }
+      updates.pdfUrl = FieldValue.delete();
+    }
+
+    if (changes.length === 0 && !pdfNote) return { ok: true, id };
+
+    batch.update(docRef, updates as FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData>);
+    await batch.commit();
+
+    const details = [changes.length ? `Cambios en: ${changes.join(", ")}` : "", pdfNote].filter(Boolean).join(". ");
+    await addHistoryLog(session, id, v.title, pdfNote ? "PDF_UPLOAD" : "UPDATE", details);
+    revalidatePath("/");
+    revalidatePath(`/proyecto/${id}`);
+    return { ok: true, id };
+  } catch (err) {
+    return fail(err, "No se pudo actualizar el proyecto.");
+  }
+}
+
+export async function deleteProject(id: string): Promise<Result> {
+  try {
+    const session = await requireAdmin();
+    const ref = adminDb.collection("projects").doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return { ok: false, error: "El proyecto no existe." };
+    await ref.update({ deleted: true, deletedAt: new Date().toISOString() });
+    await addHistoryLog(session, id, doc.data()!.title, "DELETE", "Proyecto enviado a la papelera");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    return fail(err, "No se pudo eliminar el proyecto.");
+  }
+}
+
+export async function restoreProject(id: string): Promise<Result> {
+  try {
+    const session = await requireAdmin();
+    const ref = adminDb.collection("projects").doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return { ok: false, error: "El proyecto no existe." };
+    await ref.update({ deleted: false, deletedAt: null, cleanupTag: FieldValue.delete() });
+    await addHistoryLog(session, id, doc.data()!.title, "RESTORE", "Proyecto restaurado desde la papelera");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    return fail(err, "No se pudo restaurar el proyecto.");
+  }
+}
+
+export async function getDeletedProjects(): Promise<ThesisProject[]> {
+  try {
+    await requireAdmin();
+    const snapshot = await adminDb.collection("projects").where("deleted", "==", true).get();
+    return snapshot.docs
+      .map((d) => docToProject(d.id, d.data()))
+      .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
+  } catch (err) {
+    if (!(err instanceof AuthError)) console.error("Error obteniendo la papelera:", err);
+    return [];
+  }
+}
+
+/** Borrado definitivo (solo superadmin y solo desde la papelera): borra también los PDFs. */
+export async function permanentlyDeleteProject(id: string): Promise<Result> {
+  try {
+    const session = await requireSuperadmin();
+    const ref = adminDb.collection("projects").doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return { ok: false, error: "El proyecto no existe." };
+    const data = doc.data()!;
+    if (!data.deleted) return { ok: false, error: "Primero envía el proyecto a la papelera." };
+
+    const [history, pdfHistory] = await Promise.all([
+      ref.collection("history").get(),
+      ref.collection("pdfHistory").get(),
+    ]);
+    const paths = [resolvePdfPath(data), ...pdfHistory.docs.map((d) => resolvePdfPath(d.data()))];
+
+    const batch = adminDb.batch();
+    history.docs.forEach((d) => batch.delete(d.ref));
+    pdfHistory.docs.forEach((d) => batch.delete(d.ref));
+    batch.delete(ref);
+    await batch.commit();
+    await Promise.all(paths.map((p) => deletePdf(p).catch(() => {})));
+
+    await addHistoryLog(session, id, data.title, "PURGE", `Borrado definitivo (incluye ${paths.filter(Boolean).length} PDF)`);
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    return fail(err, "No se pudo eliminar definitivamente.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Versiones de PDF
+// ---------------------------------------------------------------------------
+
+/** Versiones del PDF: la vigente primero (id "actual") y luego las anteriores. */
+export async function getPdfHistory(projectId: string): Promise<PdfVersion[]> {
+  try {
+    await requireAdmin();
+    const ref = adminDb.collection("projects").doc(projectId);
+    const [doc, snap] = await Promise.all([ref.get(), ref.collection("pdfHistory").get()]);
+    const data = doc.data() ?? {};
+    const old = snap.docs
+      .map((d, i) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          version: Number(x.version) || 0,
+          uploadedAt: x.uploadedAt ?? x.replacedAt ?? "",
+          replacedAt: x.replacedAt ?? null,
+          fileName: x.fileName ?? null,
+          _order: x.replacedAt ?? x.uploadedAt ?? String(i),
+        };
+      })
+      .sort((a, b) => String(a._order).localeCompare(String(b._order)));
+    // Versiones antiguas sin número: se numeran por orden.
+    old.forEach((v, i) => {
+      if (!v.version) v.version = i + 1;
+    });
+    const result: PdfVersion[] = old.map(({ _order, ...v }) => v);
+    if (resolvePdfPath(data)) {
+      result.push({
+        id: "actual",
+        version: Number(data.pdfVersion) || old.length + 1,
+        uploadedAt: data.pdfUploadedAt ?? data.updatedAt ?? data.createdAt ?? "",
+        replacedAt: null,
+        fileName: data.pdfFileName ?? null,
+      });
+    }
+    return result.reverse();
+  } catch (err) {
+    if (!(err instanceof AuthError)) console.error("Error obteniendo versiones de PDF:", err);
+    return [];
+  }
 }
