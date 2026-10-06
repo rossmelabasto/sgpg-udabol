@@ -1,92 +1,42 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getProjectHistory } from "@/app/actions/projects";
-import type { ProjectHistoryLog, PdfVersion } from "@/lib/projects";
-import {
-  Activity,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  FileUp,
-  RefreshCw,
-  Loader2,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, Download, Eye, FileUp, Loader2, Pencil, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
+import { getPdfHistory, getProjectHistory } from "@/app/actions/projects";
+import { pdfUrlFor, type PdfVersion, type ProjectHistoryLog } from "@/lib/projects";
 
-type Props = {
-  projectId: string;
-  pdfVersions?: PdfVersion[];
-  onViewVersion?: (versionId: string) => void;
-  downloadUrlFor?: (versionId: string) => string;
-};
-
-// Formato de fecha/hora consistente (12h con a. m./p. m.)
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("es-BO", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+export function formatDateTime(iso: string) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("es-BO", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-const actionStyles = {
-  CREATE: {
-    icon: PlusCircle,
-    color: "text-green-500",
-    bg: "bg-green-500/10",
-  },
-  UPDATE: { icon: Pencil, color: "text-blue-500", bg: "bg-blue-500/10" },
-  RESTORE: {
-    icon: RefreshCw,
-    color: "text-amber-500",
-    bg: "bg-amber-500/10",
-  },
-  DELETE: {
-    icon: Trash2,
-    color: "text-destructive",
-    bg: "bg-destructive/10",
-  },
-  PDF_UPLOAD: {
-    icon: FileUp,
-    color: "text-purple-500",
-    bg: "bg-purple-500/10",
-  },
+const ACTIONS: Record<string, { icon: typeof Activity; className: string; label: string }> = {
+  CREATE: { icon: PlusCircle, className: "bg-success/10 text-success", label: "Creación" },
+  UPDATE: { icon: Pencil, className: "bg-chart-3/10 text-chart-3", label: "Edición" },
+  PDF_UPLOAD: { icon: FileUp, className: "bg-gold/15 text-gold-dark dark:text-gold", label: "PDF" },
+  DELETE: { icon: Trash2, className: "bg-destructive/10 text-destructive", label: "Papelera" },
+  RESTORE: { icon: RefreshCw, className: "bg-chart-4/15 text-chart-4", label: "Restaurado" },
 };
 
-type TimelineItem =
-  | { type: "log"; time: string; data: ProjectHistoryLog }
-  | { type: "pdf"; time: string; data: PdfVersion };
-
-export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion, downloadUrlFor }: Props) {
-  const [logs, setLogs] = useState<ProjectHistoryLog[]>([]);
-  const [loading, setLoading] = useState(true);
+/** Versiones del PDF + línea de tiempo de cambios de un proyecto (solo admins). */
+export function ProjectHistoryList({ projectId, onViewVersion }: { projectId: string; onViewVersion?: (url: string, label: string) => void }) {
+  const [logs, setLogs] = useState<ProjectHistoryLog[] | null>(null);
+  const [versions, setVersions] = useState<PdfVersion[]>([]);
 
   useEffect(() => {
-    async function fetchHistory() {
-      setLoading(true);
-      const data = await getProjectHistory(projectId);
-      setLogs(data);
-      setLoading(false);
-    }
-
-    if (projectId) fetchHistory();
+    let alive = true;
+    setLogs(null);
+    Promise.all([getProjectHistory(projectId), getPdfHistory(projectId)]).then(([l, v]) => {
+      if (!alive) return;
+      setLogs(l);
+      setVersions(v);
+    });
+    return () => {
+      alive = false;
+    };
   }, [projectId]);
 
-  // Fusiona los registros de cambios con las versiones de PDF en un solo
-  // timeline ordenado por fecha, para que cada PDF aparezca en su momento.
-  const timeline = useMemo<TimelineItem[]>(() => {
-    const items: TimelineItem[] = [
-      ...logs.map((l) => ({ type: "log" as const, time: l.timestamp, data: l })),
-      ...pdfVersions.map((v) => ({ type: "pdf" as const, time: v.uploadedAt, data: v })),
-    ];
-    return items.sort(
-      (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime(),
-    );
-  }, [logs, pdfVersions]);
-
-  if (loading) {
+  if (!logs) {
     return (
       <div className="flex justify-center p-8 text-muted-foreground">
         <Loader2 className="size-6 animate-spin" />
@@ -94,88 +44,86 @@ export function ProjectHistoryList({ projectId, pdfVersions = [], onViewVersion,
     );
   }
 
-  if (timeline.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No hay registros en el historial para este proyecto.
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <h3 className="flex items-center text-lg font-semibold text-foreground">
-        <Activity className="mr-2 size-5" />
-        Historial de Cambios
-      </h3>
-
-      <div className="relative space-y-4 before:absolute before:inset-y-0 before:left-4.75 before:w-px before:bg-border">
-        {timeline.map((item) => {
-          if (item.type === "pdf") {
-            const v = item.data;
-            return (
-              <div key={`pdf-${v.id}`} className="relative flex items-start gap-4">
-                <div className="relative z-10 flex size-10 shrink-0 items-center justify-center rounded-full border border-background bg-purple-500/10 text-purple-500">
-                  <FileUp className="size-4" />
-                </div>
-                <div className="flex flex-col gap-1 pt-1.5">
-                  <p className="text-sm font-medium text-foreground">
-                    PDF versión {v.version}{v.id === "actual" ? " (vigente)" : ""}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{formatTime(v.uploadedAt)}</span>
-                    <span>•</span>
+    <div className="flex flex-col gap-6">
+      <section>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Versiones del PDF</h3>
+        {versions.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Este proyecto no tiene PDF.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {versions.map((v) => {
+              const vid = v.id === "actual" ? undefined : v.id;
+              const label = `Versión ${v.version}${v.id === "actual" ? " (vigente)" : ""}`;
+              return (
+                <li key={v.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+                      v.id === "actual" ? "bg-gold text-teal-dark" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    v{v.version}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {label}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Subida {formatDateTime(v.uploadedAt)}
+                      {v.replacedAt && ` · reemplazada ${formatDateTime(v.replacedAt)}`}
+                      {v.fileName && ` · ${v.fileName}`}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
                     {onViewVersion && (
                       <button
                         type="button"
-                        onClick={() => onViewVersion(v.id)}
-                        className="font-medium text-primary hover:underline"
+                        onClick={() => onViewVersion(pdfUrlFor(projectId, vid), label)}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-secondary dark:text-gold"
                       >
-                        Ver
+                        <Eye className="size-3.5" /> Ver
                       </button>
                     )}
                     <a
-                      href={downloadUrlFor ? downloadUrlFor(v.id) : "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-primary hover:underline"
+                      href={pdfUrlFor(projectId, vid, { download: true })}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
                     >
-                      Descargar
+                      <Download className="size-3.5" /> Descargar
                     </a>
                   </div>
-                </div>
-              </div>
-            );
-          }
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
-          const log = item.data;
-          const Style = actionStyles[log.action as keyof typeof actionStyles] || {
-            icon: Activity,
-            color: "text-muted-foreground",
-            bg: "bg-muted",
-          };
-          const Icon = Style.icon;
-
-          return (
-            <div key={log.id} className="relative flex items-start gap-4">
-              <div
-                className={`relative z-10 flex size-10 shrink-0 items-center justify-center rounded-full border border-background ${Style.bg} ${Style.color}`}
-              >
-                <Icon className="size-4" />
-              </div>
-
-              <div className="flex flex-col gap-1 pt-1.5">
-                <p className="text-sm font-medium text-foreground">{log.details}</p>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{formatTime(log.timestamp)}</span>
-                  <span>•</span>
-                  <span>Por: {log.actorName || log.actorEmail || log.userRole}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <section>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Historial de cambios</h3>
+        {logs.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Sin registros.</p>
+        ) : (
+          <ol className="relative flex flex-col gap-4 before:absolute before:inset-y-2 before:left-[17px] before:w-px before:bg-border">
+            {logs.map((log) => {
+              const a = ACTIONS[log.action] ?? { icon: Activity, className: "bg-muted text-muted-foreground", label: log.action };
+              const Icon = a.icon;
+              return (
+                <li key={log.id} className="relative flex gap-3">
+                  <span className={`relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full ring-4 ring-card ${a.className}`}>
+                    <Icon className="size-4" />
+                  </span>
+                  <div className="min-w-0 pt-1">
+                    <p className="text-sm text-foreground">{log.details}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatDateTime(log.timestamp)} · {log.actorName || log.actorEmail || (log.userRole === "anonymous" ? "invitado" : "administrador")}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </section>
     </div>
   );
 }

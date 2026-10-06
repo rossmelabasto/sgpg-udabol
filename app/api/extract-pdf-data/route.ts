@@ -71,7 +71,10 @@ ${text.substring(0, 8000)}
 
     // Modelo principal y uno de respaldo por si el primero falla o se satura.
     let data: any = null;
-    for (const model of MODELS) {
+    // Cada modelo se intenta dos veces si falla la red (cortes momentáneos).
+    const attempts = MODELS.flatMap((m) => [m, m]);
+    for (const [i, model] of attempts.entries()) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 1200));
       try {
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",

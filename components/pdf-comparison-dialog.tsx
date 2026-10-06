@@ -1,71 +1,62 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+type Values = { title: string; studentName: string; career: string; year: string; abstract: string; tags: string };
 
 type Props = {
-    open: boolean
-    current: {
-        title: string
-        studentName: string
-        career: string
-        year: number | ""
-        abstract: string
-        tags?: string
-    }
-    extracted: {
-        title: string
-        studentName: string
-        career: string
-        year: string
-        abstract: string
-        keywords?: string[]
-    }
-    onUseExtracted: () => void
-    onKeepCurrent: () => void
-}
+  open: boolean;
+  current: Values;
+  extracted: Values;
+  onUseExtracted: () => void;
+  onKeepCurrent: () => void;
+};
 
+const FIELDS: [keyof Values, string][] = [
+  ["title", "Título"],
+  ["studentName", "Alumno"],
+  ["career", "Carrera"],
+  ["year", "Año"],
+  ["tags", "Palabras clave"],
+  ["abstract", "Resumen"],
+];
+
+const short = (v: string) => (v.length > 160 ? `${v.slice(0, 160)}…` : v) || "—";
+
+/** Se muestra solo cuando el formulario ya tenía datos y el PDF detectó otros distintos. */
 export function PdfComparisonDialog({ open, current, extracted, onUseExtracted, onKeepCurrent }: Props) {
-    if (!open) return null
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-            <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
-                <h3 className="text-lg font-semibold">Datos detectados en el nuevo PDF</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                    Revisa los datos detectados y elige si quieres usar los nuevos o conservar los actuales.
-                </p>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    <div className="rounded-lg border border-border p-4">
-                        <p className="text-sm font-semibold text-muted-foreground">Actuales</p>
-                        <ul className="mt-3 space-y-2 text-sm">
-                            <li><span className="font-medium">Título:</span> {current.title || "—"}</li>
-                            <li><span className="font-medium">Alumno:</span> {current.studentName || "—"}</li>
-                            <li><span className="font-medium">Carrera:</span> {current.career || "—"}</li>
-                            <li><span className="font-medium">Año:</span> {current.year || "—"}</li>
-                            <li><span className="font-medium">Resumen:</span> {current.abstract ? current.abstract.slice(0, 120) + (current.abstract.length > 120 ? "..." : "") : "—"}</li>
-                            <li><span className="font-medium">Tags:</span> {current.tags || "—"}</li>
-                        </ul>
-                    </div>
-                    <div className="rounded-lg border border-border p-4">
-                        <p className="text-sm font-semibold text-muted-foreground">Nuevos</p>
-                        <ul className="mt-3 space-y-2 text-sm">
-                            <li><span className="font-medium">Título:</span> {extracted.title || "—"}</li>
-                            <li><span className="font-medium">Alumno:</span> {extracted.studentName || "—"}</li>
-                            <li><span className="font-medium">Carrera:</span> {extracted.career || "—"}</li>
-                            <li><span className="font-medium">Año:</span> {extracted.year || "—"}</li>
-                            <li><span className="font-medium">Resumen:</span> {extracted.abstract ? extracted.abstract.slice(0, 120) + (extracted.abstract.length > 120 ? "..." : "") : "—"}</li>
-                            <li><span className="font-medium">Keywords:</span> {extracted.keywords && extracted.keywords.length > 0 ? extracted.keywords.join(", ") : "—"}</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                    <Button type="button" variant="outline" onClick={onKeepCurrent}>Mantener actuales</Button>
-                    <Button type="button" onClick={onUseExtracted}>Usar datos del PDF</Button>
-                </div>
-            </Card>
+  const rows = FIELDS.filter(([k]) => extracted[k] && extracted[k].trim() !== current[k].trim());
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onKeepCurrent()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl">Datos detectados en el PDF</DialogTitle>
+          <DialogDescription>
+            El PDF trae datos distintos a los del formulario. Elige con cuáles quedarte (luego puedes ajustar cualquier campo).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-hidden rounded-xl border border-border">
+          <div className="grid grid-cols-[7rem_1fr_1fr] bg-muted/60 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="px-3 py-2">Campo</span>
+            <span className="px-3 py-2">Actual</span>
+            <span className="px-3 py-2">Del PDF</span>
+          </div>
+          {rows.map(([k, label]) => (
+            <div key={k} className="grid grid-cols-[7rem_1fr_1fr] border-t border-border text-sm">
+              <span className="px-3 py-2 font-medium text-muted-foreground">{label}</span>
+              <span className="px-3 py-2 text-foreground/80">{short(current[k])}</span>
+              <span className="bg-gold/8 px-3 py-2 text-foreground">{short(extracted[k])}</span>
+            </div>
+          ))}
         </div>
-    )
+        <DialogFooter>
+          <Button variant="outline" onClick={onKeepCurrent}>
+            Mantener los actuales
+          </Button>
+          <Button onClick={onUseExtracted}>Usar los del PDF</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

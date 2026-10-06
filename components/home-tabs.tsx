@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BarChart3, FilePlus2, FolderCog, Search, UploadCloud, Users } from "lucide-react";
+import { BarChart3, FilePlus2, FolderCog, Search, ServerCog, UploadCloud, Users } from "lucide-react";
 import { ProjectSearch } from "@/components/project-search";
 import { ProjectForm } from "@/components/project-form";
 import { AdminProjects } from "@/components/admin-projects";
 import { AdminUsers } from "@/components/admin-users";
 import { Dashboard } from "@/components/dashboard";
 import { BulkPdfUpload } from "@/components/bulk-pdf-upload";
+import { SystemPanel } from "@/components/system-panel";
 import { deleteProject, getProjects } from "@/app/actions/projects";
 import type { SearchResult, UserRole } from "@/lib/projects";
 
-type Tab = "buscar" | "administrar" | "registrar" | "subida" | "estadisticas" | "usuarios";
+type Tab = "buscar" | "administrar" | "registrar" | "subida" | "estadisticas" | "usuarios" | "sistema";
 
 const TABS: { id: Tab; label: string; icon: typeof Search; superOnly?: boolean }[] = [
   { id: "buscar", label: "Buscar", icon: Search },
@@ -20,6 +21,7 @@ const TABS: { id: Tab; label: string; icon: typeof Search; superOnly?: boolean }
   { id: "subida", label: "Subida masiva", icon: UploadCloud },
   { id: "estadisticas", label: "Estadísticas", icon: BarChart3 },
   { id: "usuarios", label: "Usuarios", icon: Users, superOnly: true },
+  { id: "sistema", label: "Sistema", icon: ServerCog, superOnly: true },
 ];
 
 export function HomeTabs({ initial, role }: { initial: SearchResult[]; role: UserRole }) {
@@ -83,12 +85,13 @@ export function HomeTabs({ initial, role }: { initial: SearchResult[]; role: Use
         {tab === "buscar" && <ProjectSearch initial={projects} />}
 
         {tab === "administrar" && (
-          <Panel title="Gestión de proyectos" description="Edita, revisa el historial y las versiones de PDF, o envía proyectos a la papelera.">
+          <Panel title="Gestión de proyectos" description="Edita, revisa el historial y las versiones de PDF, o envía proyectos a la papelera (se pueden restaurar).">
             <AdminProjects
               projects={projects}
+              role={role}
               onDelete={handleDelete}
+              onChanged={refreshProjects}
               onEdit={(project) => {
-                setEditingProject(project);
                 setTab("registrar");
                 setEditingProject(project);
               }}
@@ -133,6 +136,12 @@ export function HomeTabs({ initial, role }: { initial: SearchResult[]; role: Use
         {tab === "usuarios" && role === "superadmin" && (
           <Panel title="Cuentas administrativas" description="Solo el superadministrador ve esta sección. Desactivar o quitar una cuenta le corta el acceso de inmediato.">
             <AdminUsers />
+          </Panel>
+        )}
+
+        {tab === "sistema" && role === "superadmin" && (
+          <Panel title="Sistema" description="Respaldo de datos, duplicados, archivos huérfanos y actividad de todos los administradores.">
+            <SystemPanel />
           </Panel>
         )}
       </div>
