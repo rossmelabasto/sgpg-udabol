@@ -1,40 +1,35 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { isLoggedIn } from "@/app/actions/auth";
-import { getProjectById } from "@/app/actions/projects";
-import { SiteHeader } from "@/components/site-header";
+import { getSessionInfo } from "@/app/actions/auth";
+import { getProjectById, getRelatedProjects } from "@/app/actions/projects";
+import { SiteHeader } from "@/components/layout/site-header";
+import { SiteFooter } from "@/components/layout/site-footer";
 import { ProjectDetail } from "@/components/project-detail";
 
-export default async function ProjectDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  if (!(await isLoggedIn())) redirect("/ingresar");
+type Params = { params: Promise<{ id: string }> };
 
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
   const project = await getProjectById(id);
+  return { title: project ? project.title : "Proyecto de grado" };
+}
 
+export default async function ProjectDetailPage({ params }: Params) {
+  const { id } = await params;
+  const session = await getSessionInfo();
+  // Enlace compartido sin sesión: ingresar y volver a este mismo proyecto.
+  if (!session) redirect(`/ingresar?next=${encodeURIComponent(`/proyecto/${id}`)}`);
+
+  const [project, related] = await Promise.all([getProjectById(id), getRelatedProjects(id)]);
   if (!project) notFound();
 
   return (
-    <div className="min-h-svh bg-background flex flex-col">
+    <div className="flex min-h-svh flex-col">
       <SiteHeader />
-      <main className="flex-1 w-full">
-        <ProjectDetail project={project} />
+      <main id="contenido" className="flex-1">
+        <ProjectDetail project={project} related={related} />
       </main>
-      <footer className="border-t border-border py-8 mt-auto bg-muted/30">
-        <div className="mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground flex flex-col gap-2">
-          <p className="font-medium text-foreground">
-            Plataforma de gestión y consulta de proyectos de grado con
-            integración IA
-          </p>
-          <p>Desarrollado para la Universidad de Aquino Bolivia (UDABOL)</p>
-          <p className="text-xs mt-2 opacity-60">
-            © {new Date().getFullYear()} Rossmel Abasto. Todos los derechos
-            reservados.
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

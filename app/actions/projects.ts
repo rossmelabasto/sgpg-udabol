@@ -509,3 +509,26 @@ export async function discardUpload(path: string): Promise<Result> {
     return fail(err, "No se pudo descartar el PDF.");
   }
 }
+
+/** Proyectos relacionados: comparten palabras clave (y suman si son de la misma carrera). */
+export async function getRelatedProjects(projectId: string, limit = 3): Promise<ThesisProject[]> {
+  try {
+    await requireSession();
+    const all = (await loadProjects()).filter((p) => !p.deleted);
+    const me = all.find((p) => p.id === projectId);
+    if (!me) return [];
+    const myTags = new Set((me.tags ?? []).map((t) => normalize(t)));
+    return all
+      .filter((p) => p.id !== projectId)
+      .map((p) => {
+        const shared = (p.tags ?? []).filter((t) => myTags.has(normalize(t))).length;
+        return { p, score: shared * 3 + (p.career === me.career ? 1 : 0) + titleSimilarity(p.title, me.title) * 4 };
+      })
+      .filter((x) => x.score >= 3)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((x) => x.p);
+  } catch {
+    return [];
+  }
+}

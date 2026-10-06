@@ -1,44 +1,41 @@
 import { redirect } from "next/navigation";
-import { getUserRole, isLoggedIn } from "@/app/actions/auth";
+import { getSessionInfo } from "@/app/actions/auth";
 import { getProjects } from "@/app/actions/projects";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/layout/site-header";
+import { SiteFooter } from "@/components/layout/site-footer";
 import { HomeTabs } from "@/components/home-tabs";
-import type { SearchResult } from "@/lib/projects";
-import { BookOpen } from "lucide-react";
+import { isAdminRole } from "@/lib/projects";
 
 export default async function HomePage() {
-  if (!(await isLoggedIn())) redirect("/ingresar");
+  const session = await getSessionInfo();
+  if (!session) redirect("/ingresar");
 
-  const role = await getUserRole();
   const rows = await getProjects();
-  const initial: SearchResult[] = rows.map((r) => ({ ...r, score: 0 }));
+  const careers = new Set(rows.map((r) => r.career)).size;
+  const withPdf = rows.filter((r) => r.hasPdf).length;
+  const admin = isAdminRole(session.role);
 
   return (
-    <div className="min-h-svh bg-background flex flex-col">
+    <div className="flex min-h-svh flex-col">
       <SiteHeader />
 
-      {/* Hero section eliminado por claridad */}
-
-      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12 flex-1 w-full">
-        <HomeTabs
-          initial={initial}
-          role={role}
-        />
-      </main>
-
-      <footer className="border-t border-border py-8 mt-auto bg-muted/30">
-        <div className="mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground flex flex-col gap-2">
-          <p className="font-medium text-foreground">
-            Plataforma de gestión y consulta de proyectos de grado con
-            integración IA
+      <section className="border-b border-border bg-card/70">
+        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-6 sm:px-6 sm:py-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-dark dark:text-gold">
+            {admin ? "Panel de gestión" : "Universidad de Aquino Bolivia"}
           </p>
-          <p>Desarrollado para la Universidad de Aquino Bolivia (UDABOL)</p>
-          <p className="text-xs mt-2 opacity-60">
-            © {new Date().getFullYear()} Rossmel Abasto. Todos los derechos
-            reservados.
+          <h1 className="font-heading text-2xl font-semibold text-foreground sm:text-3xl">Repositorio de Proyectos de Grado</h1>
+          <p className="text-sm text-muted-foreground">
+            {rows.length} proyectos · {careers} carreras · {withPdf} con documento digital
           </p>
         </div>
-      </footer>
+      </section>
+
+      <main id="contenido" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <HomeTabs initial={rows.map((r) => ({ ...r, score: 0 }))} role={session.role} />
+      </main>
+
+      <SiteFooter />
     </div>
   );
 }
