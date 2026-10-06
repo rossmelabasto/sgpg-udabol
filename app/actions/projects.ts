@@ -20,7 +20,7 @@ import {
   AuthError,
   type Session,
 } from "@/lib/auth";
-import { searchInMemory, type SearchFilters } from "@/lib/search";
+import { normalize, searchInMemory, titleSimilarity, type SearchFilters } from "@/lib/search";
 import { deletePdf, isValidPdfPath, pdfExists, resolvePdfPath } from "@/lib/pdf-storage";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -461,5 +461,51 @@ export async function getPdfHistory(projectId: string): Promise<PdfVersion[]> {
   } catch (err) {
     if (!(err instanceof AuthError)) console.error("Error obteniendo versiones de PDF:", err);
     return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicados y subidas descartadas
+// ---------------------------------------------------------------------------
+
+export type DuplicateMatch = { index: number; id: string; title: string; studentName: string; similarity: number };
+
+/** Para cada título candidato, devuelve proyectos existentes muy parecidos. */
+export async function checkDuplicates(
+  items: { title: string; studentName?: string }[],
+): Promise<DuplicateMatch[]> {
+  try {
+    await requireAdmin();
+    const all = (await loadProjects()).filter((p) => !p.deleted);
+    const out: DuplicateMatch[] = [];
+    items.forEach((item, index) => {
+      if (!item.title?.trim()) return;
+      for (const p of all) {
+        let sim = titleSimilarity(item.title, p.title);
+        // Mismo alumno y título parecido: casi seguro es el mismo proyecto.
+        if (item.studentName && normalize(item.studentName) === normalize(p.studentName)) sim = Math.min(1, sim + 0.2);
+        if (sim >= 0.75) out.push({ index, id: p.id, title: p.title, studentName: p.studentName, similarity: Math.round(sim * 100) / 100 });
+      }
+    });
+    return out;
+  } catch (err) {
+    if (!(err instanceof AuthError)) console.error("Error buscando duplicados:", err);
+    return [];
+  }
+}
+
+/** Borra un PDF recién subido que no llegó a asociarse a ningún proyecto. */
+export async function discardUpload(path: string): Promise<Result> {
+  try {
+    await requireAdmin();
+    if (!isValidPdfPath(path)) return { ok: false, error: "Ruta no válida." };
+    // Solo se llama justo después de una subida que no llegó a guardarse, así
+    // que basta con comprobar que ningún proyecto la tenga como PDF vigente.
+    const inUse = await adminDb.collection("projects").where("pdfPath", "==", path).limit(1).get();
+    if (!inUse.empty) return { ok: false, error: "El PDF está en uso." };
+    await deletePdf(path);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, "No se pudo descartar el PDF.");
   }
 }

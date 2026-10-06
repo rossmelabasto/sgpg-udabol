@@ -5,6 +5,10 @@ export type PdfExtraction = {
   year: string;
   abstract: string;
   keywords: string[];
+  /** true si el PDF casi no tiene texto (probablemente escaneado). */
+  scanned: boolean;
+  /** true si los datos vinieron de la IA (Groq); false si solo heurística. */
+  aiUsed: boolean;
 };
 
 function normalizeText(value: string) {
@@ -73,6 +77,7 @@ function inferCareer(text: string) {
   if (lower.includes("petrol")) return "Ingeniería Petrolera";
   if (lower.includes("telecom")) return "Ingeniería en Telecomunicaciones";
   if (lower.includes("sistemas")) return "Ingeniería en Sistemas";
+  if (/ingenier[ií]a\s+civil/.test(lower)) return "Ingeniería Civil";
   return "";
 }
 
@@ -275,7 +280,10 @@ export async function extractPdfData(file: File): Promise<PdfExtraction> {
   let year = "";
   let keywords: string[] = [];
 
-  try {
+  const scanned = fullText.replace(/\s/g, "").length < 200;
+  let aiUsed = false;
+
+  if (!scanned) try {
     const response = await fetch("/api/extract-pdf-data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -289,6 +297,7 @@ export async function extractPdfData(file: File): Promise<PdfExtraction> {
       career = data.career || "";
       year = data.year || "";
       keywords = Array.isArray(data.keywords) ? data.keywords : [];
+      aiUsed = true;
     }
   } catch (error) {
     console.warn(
@@ -314,5 +323,7 @@ export async function extractPdfData(file: File): Promise<PdfExtraction> {
     year,
     abstract,
     keywords,
+    scanned,
+    aiUsed,
   };
 }

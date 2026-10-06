@@ -210,7 +210,6 @@ export function ProjectForm({
           onUploadComplete={setNewPdf}
           existingPdfUrl={newPdf ? `${pdfUrlFor("_subida")}?path=${encodeURIComponent(newPdf.path)}` : project?.hasPdf ? pdfUrlFor(project.id) : null}
           onLoadingChange={setPdfLoading}
-          projectId={project?.id ?? null}
         />
 
         <div className="flex flex-col gap-2">
