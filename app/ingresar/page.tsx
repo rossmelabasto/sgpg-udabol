@@ -9,7 +9,7 @@ import { auth } from "@/lib/firebase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BrandMark } from "@/components/brand";
+import { BrandLogo, BrandMark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 // Vuelve a la página que se quería abrir (solo rutas internas).
@@ -122,6 +122,7 @@ export default function IngresarPage() {
       <section className="relative flex items-center justify-center bg-background px-4 py-10 sm:px-8">
         <ThemeToggle className="absolute right-6 top-6 hidden border-border bg-card text-foreground hover:bg-muted lg:flex" />
         <div className="w-full max-w-md">
+          <BrandLogo className="mb-8 h-14 w-auto" />
           <h2 className="font-heading text-2xl font-semibold text-foreground sm:text-3xl">Bienvenido</h2>
           <p className="mt-1 text-sm text-muted-foreground">Elige cómo quieres ingresar.</p>
 
