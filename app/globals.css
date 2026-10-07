@@ -2,7 +2,9 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
-@custom-variant dark (&:is(.dark *));
+/* El tema oscuro va en <html data-theme="dark">: React no maneja ese atributo,
+   así que nunca lo borra al volver a dibujar la página (con `class` sí pasaba). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
  * Identidad visual UDABOL (tomada del sitio oficial udabol.edu.bo):
@@ -106,7 +108,7 @@
   --sidebar-ring: var(--gold);
 }
 
-.dark {
+[data-theme="dark"] {
   --success: hsl(152 50% 55%);
   --background: hsl(180 37% 7%);
   --foreground: hsl(0 0% 96%);

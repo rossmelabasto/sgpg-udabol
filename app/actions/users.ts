@@ -58,7 +58,7 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
     }
     return users;
   } catch (err) {
-    console.error("Error obteniendo administradores:", err);
+    if (!(err instanceof AuthError)) console.error("Error obteniendo administradores:", err);
     return [];
   }
 }

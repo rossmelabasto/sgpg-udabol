@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { BarChart3, FilePlus2, FolderCog, Search, ServerCog, UploadCloud, Users } from "lucide-react";
-import { ProjectSearch } from "@/components/project-search";
+import { ProjectSearch, type SearchParamsState } from "@/components/project-search";
 import { ProjectForm } from "@/components/project-form";
 import { AdminProjects } from "@/components/admin-projects";
 import { AdminUsers } from "@/components/admin-users";
@@ -24,7 +24,19 @@ const TABS: { id: Tab; label: string; icon: typeof Search; superOnly?: boolean }
   { id: "sistema", label: "Sistema", icon: ServerCog, superOnly: true },
 ];
 
-export function HomeTabs({ initial, role, initialTab }: { initial: SearchResult[]; role: UserRole; initialTab?: string }) {
+export function HomeTabs({
+  initial,
+  initialResults,
+  initialParams,
+  role,
+  initialTab,
+}: {
+  initial: SearchResult[];
+  initialResults: SearchResult[];
+  initialParams: SearchParamsState;
+  role: UserRole;
+  initialTab?: string;
+}) {
   const tabs = TABS.filter((t) => !t.superOnly || role === "superadmin");
   const [tab, setTabState] = useState<Tab>(() => (tabs.some((t) => t.id === initialTab) ? (initialTab as Tab) : "buscar"));
   const [projects, setProjects] = useState(initial);
@@ -52,7 +64,7 @@ export function HomeTabs({ initial, role, initialTab }: { initial: SearchResult[
     await refreshProjects();
   }
 
-  if (role === "anonymous") return <ProjectSearch initial={projects} />;
+  if (role === "anonymous") return <ProjectSearch initial={initialResults} initialParams={initialParams} />;
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,7 +88,7 @@ export function HomeTabs({ initial, role, initialTab }: { initial: SearchResult[
       </nav>
 
       <div key={tab} className="animate-in fade-in slide-in-from-bottom-1 duration-300">
-        {tab === "buscar" && <ProjectSearch initial={projects} />}
+        {tab === "buscar" && <ProjectSearch initial={initialResults} initialParams={initialParams} />}
 
         {tab === "administrar" && (
           <Panel title="Gestión de proyectos" description="Edita, revisa el historial y las versiones de PDF, o envía proyectos a la papelera (se pueden restaurar).">
