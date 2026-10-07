@@ -38,7 +38,8 @@ export function ProjectSearch({ initial }: { initial: SearchResult[] }) {
   const [isPending, startTransition] = useTransition();
   const [pageSize, setPageSize] = useState(12);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortKey, setSortKey] = useState<SortKey>(significantTokens(initialUrl.q).length ? "relevancia" : "year");
+  // null = orden automático: relevancia si hay consulta, año si no.
+  const [chosenSort, setSortKey] = useState<SortKey | null>(null);
   const [showFilters, setShowFilters] = useState(!!(initialUrl.carrera || initialUrl.desde || initialUrl.hasta));
   const topRef = useRef<HTMLDivElement>(null);
   const hasQuery = significantTokens(query).length > 0;
@@ -73,10 +74,8 @@ export function ProjectSearch({ initial }: { initial: SearchResult[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, career, yearFrom, yearTo, tag]);
 
-  // Al escribir una consulta, ordenar por relevancia; al borrarla, por año.
-  useEffect(() => {
-    setSortKey((k) => (hasQuery ? (k === "year" ? "relevancia" : k) : k === "relevancia" ? "year" : k));
-  }, [hasQuery]);
+  const sortKey: SortKey =
+    chosenSort === "relevancia" && !hasQuery ? "year" : chosenSort ?? (hasQuery ? "relevancia" : "year");
 
   const sorted = useMemo(() => {
     if (sortKey === "relevancia") return results; // ya vienen ordenados por puntaje

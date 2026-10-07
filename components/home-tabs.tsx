@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BarChart3, FilePlus2, FolderCog, Search, ServerCog, UploadCloud, Users } from "lucide-react";
 import { ProjectSearch } from "@/components/project-search";
 import { ProjectForm } from "@/components/project-form";
@@ -24,19 +24,13 @@ const TABS: { id: Tab; label: string; icon: typeof Search; superOnly?: boolean }
   { id: "sistema", label: "Sistema", icon: ServerCog, superOnly: true },
 ];
 
-export function HomeTabs({ initial, role }: { initial: SearchResult[]; role: UserRole }) {
+export function HomeTabs({ initial, role, initialTab }: { initial: SearchResult[]; role: UserRole; initialTab?: string }) {
   const tabs = TABS.filter((t) => !t.superOnly || role === "superadmin");
-  const [tab, setTabState] = useState<Tab>("buscar");
+  const [tab, setTabState] = useState<Tab>(() => (tabs.some((t) => t.id === initialTab) ? (initialTab as Tab) : "buscar"));
   const [projects, setProjects] = useState(initial);
   const [editingProject, setEditingProject] = useState<SearchResult | null>(null);
 
   // La vista activa vive en la URL (?vista=...), así se puede recargar o compartir.
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("vista") as Tab | null;
-    if (v && tabs.some((t) => t.id === v)) setTabState(v);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function setTab(next: Tab) {
     setTabState(next);
     if (next !== "registrar") setEditingProject(null);
@@ -109,6 +103,7 @@ export function HomeTabs({ initial, role }: { initial: SearchResult[]; role: Use
             }
           >
             <ProjectForm
+              key={editingProject?.id ?? "nuevo"}
               mode={editingProject ? "edit" : "create"}
               project={editingProject}
               destinationTab={editingProject ? "administrar" : "registrar"}

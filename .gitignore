@@ -29,3 +29,7 @@ firestore-debug.log
 ui-debug.log
 storage-debug.log
 *-debug.log
+
+# Generados
+*.tsbuildinfo
+next-env.d.ts

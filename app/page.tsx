@@ -6,9 +6,10 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { HomeTabs } from "@/components/home-tabs";
 import { isAdminRole } from "@/lib/projects";
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
   const session = await getSessionInfo();
   if (!session) redirect("/ingresar");
+  const { vista } = await searchParams;
 
   const rows = await getProjects();
   const careers = new Set(rows.map((r) => r.career)).size;
@@ -32,7 +33,7 @@ export default async function HomePage() {
       </section>
 
       <main id="contenido" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-        <HomeTabs initial={rows.map((r) => ({ ...r, score: 0 }))} role={session.role} />
+        <HomeTabs initial={rows.map((r) => ({ ...r, score: 0 }))} role={session.role} initialTab={vista} />
       </main>
 
       <SiteFooter />

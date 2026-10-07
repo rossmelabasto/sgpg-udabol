@@ -234,8 +234,7 @@ export async function extractPdfData(file: File): Promise<PdfExtraction> {
     throw new Error("PDF extraction must run in the browser.");
   }
 
-  // @ts-ignore
-  const pdfjsLib: any = await import("pdfjs-dist/build/pdf.mjs");
+  const pdfjsLib: any = await import("pdfjs-dist");
 
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";

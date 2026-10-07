@@ -4,5 +4,6 @@ allowBuilds:
   protobufjs: true
   re2: false
   sharp: true
+  unrs-resolver: false
 overrides:
   jose: 5.10.0

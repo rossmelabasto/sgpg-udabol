@@ -447,7 +447,7 @@ export async function getPdfHistory(projectId: string): Promise<PdfVersion[]> {
     old.forEach((v, i) => {
       if (!v.version) v.version = i + 1;
     });
-    const result: PdfVersion[] = old.map(({ _order, ...v }) => v);
+    const result: PdfVersion[] = old.map(({ id, version, uploadedAt, replacedAt, fileName }) => ({ id, version, uploadedAt, replacedAt, fileName }));
     if (resolvePdfPath(data)) {
       result.push({
         id: "actual",

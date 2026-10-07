@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 
+// Los padres le ponen key={url}: cada documento monta un visor nuevo.
 type Props = { url: string; title?: string; onClose?: () => void };
 
 type Viewer = {
@@ -56,18 +57,13 @@ export function PdfViewer({ url, title = "PDF", onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     let doc: any = null;
-    setStatus("loading");
-    setError(null);
-    setProgress(0);
 
     (async () => {
       try {
-        // @ts-ignore — el build .mjs de pdfjs-dist no trae tipos resolubles aquí
-        const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
+        const pdfjs: any = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
         // pdf_viewer.mjs toma pdf.js de globalThis.pdfjsLib.
         (globalThis as any).pdfjsLib = pdfjs;
-        // @ts-ignore
         const { EventBus, PDFLinkService, PDFFindController, PDFViewer } = await import("pdfjs-dist/web/pdf_viewer.mjs");
         if (cancelled || !containerRef.current) return;
 

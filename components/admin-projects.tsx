@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Download, ExternalLink, FileText, History, Loader2, PencilLine, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
   const [onlyMissing, setOnlyMissing] = useState<"" | "pdf" | "resumen">("");
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
   const [historyOf, setHistoryOf] = useState<ThesisProject | null>(null);
   const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "delete" | "purge"; project: ThesisProject } | null>(null);
@@ -48,15 +47,18 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
   const [message, setMessage] = useState<string | null>(null);
 
   async function loadTrash() {
-    setTrash(null);
     setTrash(await getDeletedProjects());
   }
 
-  useEffect(() => {
-    if (view === "papelera") loadTrash();
-  }, [view]);
+  function changeView(v: "activos" | "papelera") {
+    setView(v);
+    if (v === "papelera") {
+      setTrash(null);
+      loadTrash();
+    }
+  }
 
-  const source: ThesisProject[] = view === "activos" ? projects : trash ?? [];
+  const source = useMemo<ThesisProject[]>(() => (view === "activos" ? projects : trash ?? []), [view, projects, trash]);
 
   const filtered = useMemo(() => {
     const q = normalize(search);
@@ -72,7 +74,11 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
     });
   }, [source, search, career, onlyMissing, sortKey, view]);
 
-  useEffect(() => setPage(1), [search, career, onlyMissing, sortKey, view]);
+  // La página vuelve a 1 cuando cambian los filtros (sin efecto: se compara la "firma").
+  const filterKey = [search, career, onlyMissing, sortKey, view].join("|");
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const setPage = (p: number) => setPageState({ key: filterKey, page: p });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -121,7 +127,7 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
             <button
               key={v}
               type="button"
-              onClick={() => setView(v)}
+              onClick={() => changeView(v)}
               className={`rounded-lg px-3.5 py-1.5 font-medium transition-colors ${view === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             >
               {v === "activos" ? `Activos (${projects.length})` : `Papelera${trash ? ` (${trash.length})` : ""}`}
@@ -276,7 +282,7 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
             <DialogTitle className="font-heading text-xl">Historial del proyecto</DialogTitle>
             <p className="line-clamp-2 text-sm text-muted-foreground">{historyOf?.title}</p>
           </DialogHeader>
-          {historyOf && <ProjectHistoryList projectId={historyOf.id} onViewVersion={(url, label) => setViewer({ url, title: `${historyOf.title} — ${label}` })} />}
+          {historyOf && <ProjectHistoryList key={historyOf.id} projectId={historyOf.id} onViewVersion={(url, label) => setViewer({ url, title: `${historyOf.title} — ${label}` })} />}
         </DialogContent>
       </Dialog>
 

@@ -27,7 +27,7 @@ export function AdminUsers() {
     setUsers(await getAdminUsers());
   }
   useEffect(() => {
-    load();
+    getAdminUsers().then(setUsers);
   }, []);
 
   async function handleAdd(e: React.FormEvent) {
@@ -129,7 +129,7 @@ export function AdminUsers() {
         </ul>
       )}
 
-      <EditDialog user={editing} onClose={() => setEditing(null)} onSaved={load} />
+      {editing && <EditDialog key={editing.id} user={editing} onClose={() => setEditing(null)} onSaved={load} />}
 
       <ConfirmDialog
         open={!!removing}
@@ -149,27 +149,17 @@ export function AdminUsers() {
   );
 }
 
-function EditDialog({ user, onClose, onSaved }: { user: AdminUser | null; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+function EditDialog({ user, onClose, onSaved }: { user: AdminUser; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(user.displayName);
+  const [email, setEmail] = useState(user.email);
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("admin");
+  const [role, setRole] = useState<Role>(user.role);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      setName(user.displayName);
-      setEmail(user.email);
-      setPassword("");
-      setRole(user.role);
-      setError(null);
-    }
-  }, [user]);
-
   async function save() {
     setSaving(true);
-    const r = await updateAdminUser(user!.id, { displayName: name, email, password: password || undefined, role });
+    const r = await updateAdminUser(user.id, { displayName: name, email, password: password || undefined, role });
     setSaving(false);
     if (!r.ok) return setError(r.error);
     onSaved();

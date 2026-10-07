@@ -28,7 +28,7 @@ export function PdfViewerDialog({ url, open, onOpenChange, title = "Visor de PDF
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="flex-1 w-full overflow-hidden">
-          <PdfViewer url={url} title={title} onClose={() => onOpenChange(false)} />
+          <PdfViewer key={url} url={url} title={title} onClose={() => onOpenChange(false)} />
         </div>
       </DialogContent>
     </Dialog>

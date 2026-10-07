@@ -25,7 +25,6 @@ export function ProjectHistoryList({ projectId, onViewVersion }: { projectId: st
 
   useEffect(() => {
     let alive = true;
-    setLogs(null);
     Promise.all([getProjectHistory(projectId), getPdfHistory(projectId)]).then(([l, v]) => {
       if (!alive) return;
       setLogs(l);

@@ -92,7 +92,7 @@ export function ProjectDetail({ project, related = [] }: { project: ThesisProjec
             </div>
             {project.hasPdf ? (
               <div className="h-[75vh] min-h-[420px] overflow-hidden rounded-xl border border-border shadow-card">
-                <PdfViewer url={pdfUrl} title={project.title} />
+                <PdfViewer key={pdfUrl} url={pdfUrl} title={project.title} />
               </div>
             ) : (
               <p className="rounded-xl border border-dashed border-border p-5 text-sm italic text-muted-foreground">

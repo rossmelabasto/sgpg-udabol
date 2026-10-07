@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 
-export function ThemeToggle({ className = "" }: { className?: string }) {
-  const [dark, setDark] = useState<boolean | null>(null);
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => observer.disconnect();
+}
 
-  useEffect(() => {
-    // El script del layout ya aplicó el tema antes de pintar; aquí solo se lee.
-    setDark(document.documentElement.classList.contains("dark"));
-  }, []);
+export function ThemeToggle({ className = "" }: { className?: string }) {
+  // El script del layout aplica el tema antes de pintar; aquí se lee la clase
+  // "dark" del <html> como estado externo (y se escucha si cambia).
+  const dark = useSyncExternalStore(subscribe, () => document.documentElement.classList.contains("dark"), () => false);
 
   function toggle() {
     const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
-    setDark(next);
     try {
       localStorage.setItem("udabol-theme", next ? "dark" : "light");
     } catch {}

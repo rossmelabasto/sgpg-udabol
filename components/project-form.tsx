@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
+import { useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2, PencilLine, Plus, Sparkles, X } from "lucide-react";
 import { createProject, updateProject } from "@/app/actions/projects";
@@ -29,30 +29,19 @@ export function ProjectForm({ mode = "create", project = null, onSuccess, destin
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [pdfLoading, setPdfLoading] = useState(false);
-  const [title, setTitle] = useState("");
-  const [studentName, setStudentName] = useState("");
-  const [career, setCareer] = useState("");
-  const [year, setYear] = useState("");
-  const [abstract, setAbstract] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
+  // El padre le pone key={project.id}: al cambiar de proyecto se monta de nuevo.
+  const [title, setTitle] = useState(project?.title ?? "");
+  const [studentName, setStudentName] = useState(project?.studentName ?? "");
+  const [career, setCareer] = useState(project?.career ?? "");
+  const [year, setYear] = useState(project ? String(project.year) : "");
+  const [abstract, setAbstract] = useState(project?.abstract ?? "");
+  const [tags, setTags] = useState<string[]>(project?.tags ?? []);
   const [tagDraft, setTagDraft] = useState("");
   // PDF recién subido en este formulario (aún no guardado en el proyecto).
   const [newPdf, setNewPdf] = useState<{ path: string; fileName: string } | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [extracted, setExtracted] = useState<Extracted | null>(null);
   const [autoFilled, setAutoFilled] = useState(false);
-
-  useEffect(() => {
-    setTitle(project?.title ?? "");
-    setStudentName(project?.studentName ?? "");
-    setCareer(project?.career ?? "");
-    setYear(project ? String(project.year) : "");
-    setAbstract(project?.abstract ?? "");
-    setTags(project?.tags ?? []);
-    setNewPdf(null);
-    setFeedback(null);
-    setAutoFilled(false);
-  }, [project]);
 
   const current = { title, studentName, career, year, abstract, tags: tags.join(", ") };
 
