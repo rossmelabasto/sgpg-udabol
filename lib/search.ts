@@ -36,18 +36,25 @@ export function significantTokens(query: string): string[] {
   return [...new Set(tokenize(query).filter((t) => t.length >= 2 && !STOPWORDS.has(t)))];
 }
 
-/** Distancia de Levenshtein con corte temprano (devuelve max+1 si se pasa). */
+/**
+ * Distancia de edición (Damerau, variante OSA): cambiar, agregar, quitar o
+ * invertir dos letras vecinas cuenta como 1 error ("monitoero" ≈ "monitoreo").
+ * Corta temprano y devuelve max+1 si se pasa del máximo.
+ */
 export function levenshtein(a: string, b: string, max = 2): number {
   if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev2: number[] = [];
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
     const cur = [i];
     let rowMin = i;
     for (let j = 1; j <= b.length; j++) {
       cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j], cur[j - 1], prev[j - 1]);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) cur[j] = Math.min(cur[j], prev2[j - 2] + 1);
       rowMin = Math.min(rowMin, cur[j]);
     }
     if (rowMin > max) return max + 1;
+    prev2 = prev;
     prev = cur;
   }
   return prev[b.length];
