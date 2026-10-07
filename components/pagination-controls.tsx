@@ -16,6 +16,7 @@ type Props = {
   totalItems: number;
   onPageSizeChange: (size: number) => void;
   onPageChange: (page: number) => void;
+  pageSizeOptions?: number[];
 };
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
@@ -26,6 +27,7 @@ export function PaginationControls({
   totalItems,
   onPageSizeChange,
   onPageChange,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
 }: Props) {
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.max(1, Math.min(currentPage, totalPages));
@@ -59,7 +61,7 @@ export function PaginationControls({
   const to = Math.min(safePage * pageSize, totalItems);
 
   return (
-    <div className="flex flex-col items-center gap-3 pt-4">
+    <nav aria-label="Paginación" className="flex flex-col items-center gap-3 pt-2">
       {/* Info */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span>
@@ -75,7 +77,7 @@ export function PaginationControls({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PAGE_SIZE_OPTIONS.map((n) => (
+              {pageSizeOptions.map((n) => (
                 <SelectItem key={n} value={String(n)} className="text-xs">
                   {n}
                 </SelectItem>
@@ -119,6 +121,7 @@ export function PaginationControls({
               variant={p === safePage ? "default" : "outline"}
               size="sm"
               className="h-8 min-w-[2rem] px-0 text-xs"
+              aria-current={p === safePage ? "page" : undefined}
               onClick={() => onPageChange(p)}
             >
               {p}
@@ -147,6 +150,6 @@ export function PaginationControls({
           <ChevronsRight className="size-3.5" />
         </Button>
       </div>
-    </div>
+    </nav>
   );
 }

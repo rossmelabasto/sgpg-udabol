@@ -1,93 +1,93 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { Badge } from "@/components/ui/badge"
-import type { SearchResult } from "@/lib/projects"
-import { User, Calendar, GraduationCap, FileText, Tag } from "lucide-react"
-import { PdfViewerDialog } from "@/components/pdf-viewer-dialog"
+import { useState } from "react";
+import Link from "next/link";
+import { ArrowUpRight, Calendar, FileText, User } from "lucide-react";
+import type { SearchResult } from "@/lib/projects";
+import { pdfUrlFor } from "@/lib/projects";
+import { PdfViewerDialog } from "@/components/pdf-viewer-dialog";
+import { CareerBadge } from "@/components/career-badge";
 
-const CAREER_STYLES: Record<string, string> = {
-  "Ingeniería en Sistemas": "bg-chart-1/10 text-chart-1 border-chart-1/20",
-  "Ingeniería en Telecomunicaciones": "bg-chart-4/15 text-chart-4 border-chart-4/25",
-  "Ingeniería Petrolera": "bg-chart-5/15 text-chart-5 border-chart-5/25",
-}
-
-export function ProjectCard({ project }: { project: SearchResult }) {
-  const [showPdf, setShowPdf] = useState(false)
-  
-  const careerStyle =
-    CAREER_STYLES[project.career] ?? "bg-secondary text-secondary-foreground border-border"
+export function ProjectCard({
+  project,
+  onTagClick,
+  activeTag,
+}: {
+  project: SearchResult;
+  onTagClick?: (tag: string) => void;
+  activeTag?: string;
+}) {
+  const [showPdf, setShowPdf] = useState(false);
+  const tags = project.tags ?? [];
 
   return (
     <>
-      <PdfViewerDialog
-        url={project.pdfUrl ?? null}
-        open={showPdf}
-        onOpenChange={setShowPdf}
-        title={project.title}
-      />
-      
-      <article className="flex flex-col justify-between gap-3 rounded-xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={`font-medium ${careerStyle}`}>
-              <GraduationCap className="size-3.5 mr-1" aria-hidden="true" />
-              {project.career}
-            </Badge>
-            <Badge variant="outline" className="gap-1 font-medium text-muted-foreground">
-              <Calendar className="size-3.5" aria-hidden="true" />
-              {project.year}
-            </Badge>
-          </div>
+      {project.hasPdf && (
+        <PdfViewerDialog url={pdfUrlFor(project.id)} open={showPdf} onOpenChange={setShowPdf} title={project.title} />
+      )}
 
-          <Link
-            href={`/proyecto/${project.id}`}
-            className="text-pretty text-lg font-bold leading-snug text-card-foreground hover:text-primary transition-colors"
-          >
-            {project.title}
-          </Link>
-
-          {project.abstract && (
-            <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-              {project.abstract}
-            </p>
-          )}
-
-          {/* Tags */}
-          {project.tags && project.tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {project.tags.slice(0, 5).map((t) => (
-                <Badge key={t} variant="secondary" className="text-[10px] font-medium px-1.5 py-0">
-                  {t}
-                </Badge>
-              ))}
-              {project.tags.length > 5 && (
-                <Badge variant="outline" className="text-[10px] font-medium px-1.5 py-0 text-muted-foreground">
-                  +{project.tags.length - 5}
-                </Badge>
-              )}
-            </div>
+      <article className="hover-lift group relative flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-card hover:border-gold/50">
+        <div className="flex flex-wrap items-center gap-2">
+          <CareerBadge career={project.career} />
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <Calendar className="size-3.5" aria-hidden="true" />
+            {project.year}
+          </span>
+          {project.hasPdf && (
+            <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+              <FileText className="size-3" /> PDF
+            </span>
           )}
         </div>
 
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1.5 font-medium text-foreground">
-            <User className="size-4" aria-hidden="true" />
-            {project.studentName}
+        <h3 className="font-heading text-lg font-semibold leading-snug text-card-foreground">
+          <Link href={`/proyecto/${project.id}`} className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none group-hover:text-primary dark:group-hover:text-gold">
+            {project.title}
+          </Link>
+        </h3>
+
+        {project.abstract && <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{project.abstract}</p>}
+
+        {tags.length > 0 && (
+          <div className="relative z-10 flex flex-wrap gap-1.5">
+            {tags.slice(0, 5).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => onTagClick?.(t)}
+                disabled={!onTagClick}
+                title={onTagClick ? `Ver proyectos con «${t}»` : undefined}
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  activeTag && activeTag.toLowerCase() === t.toLowerCase()
+                    ? "border-gold bg-gold/15 text-foreground"
+                    : "border-border bg-secondary/60 text-secondary-foreground hover:border-gold/60 hover:bg-gold/10"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+            {tags.length > 5 && <span className="px-1 py-0.5 text-[11px] text-muted-foreground">+{tags.length - 5}</span>}
+          </div>
+        )}
+
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-3 text-sm">
+          <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+            <User className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate">{project.studentName}</span>
           </span>
-          {project.pdfUrl && (
+          {project.hasPdf ? (
             <button
-              onClick={() => setShowPdf(true)}
               type="button"
-              className="flex items-center gap-1.5 font-medium text-primary hover:underline cursor-pointer"
+              onClick={() => setShowPdf(true)}
+              className="relative z-10 inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 font-medium text-primary hover:bg-secondary dark:text-gold"
             >
-              <FileText className="size-4" aria-hidden="true" />
-              Ver PDF
+              <FileText className="size-4" aria-hidden="true" /> Leer
             </button>
+          ) : (
+            <ArrowUpRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true" />
           )}
         </div>
       </article>
     </>
-  )
+  );
 }

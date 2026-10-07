@@ -1,11 +1,11 @@
 rules_version = '2';
+
+// Los PDFs se suben y se leen solo a través del servidor (/api/upload-pdf y
+// /api/pdf/<id>), que verifica la sesión. Nadie accede directo al bucket.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /projects/{allPaths=**} {
-      // Público para lectura (el visor de Google Docs lo necesita)
-      allow read: if true;
-      // Solo admins autenticados pueden subir/borrar
-      allow write: if request.auth != null && request.auth.token.admin == true;
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { getSession, isAdminRole } from "@/lib/auth";
+
+const MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 
 function safeJsonParse(content: string): Record<string, unknown> {
   if (!content) return {};
@@ -18,10 +21,15 @@ function safeJsonParse(content: string): Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role)) {
+    return NextResponse.json({ error: "Solo los administradores pueden usar la extracción." }, { status: 403 });
+  }
+
   try {
     const { text } = await request.json();
 
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
     }
 
@@ -50,38 +58,51 @@ A continuación se presenta el texto extraído de un proyecto de grado o tesis. 
 Tu objetivo es extraer los siguientes datos y devolverlos ESTRICTAMENTE en formato JSON, sin texto adicional ni markdown. Corrige errores tipográficos del OCR.
 
 Campos a extraer:
-- title: El título completo del proyecto de grado (string). Aparece en mayúsculas después de la carrera, antes de "EXAMEN DE GRADO" / "PROYECTO DE GRADO" / "TESIS DE GRADO". Ej: "SISTEMA DE GESTIÓN ACADÉMICA PARA LA UNIVERSIDAD DE AQUINO BOLIVIA".
+- title: El título completo del proyecto de grado (string). Aparece en mayúsculas después de la carrera, antes de "EXAMEN DE GRADO" / "PROYECTO DE GRADO" / "TESIS DE GRADO". Devuélvelo en formato oración (no todo en mayúsculas): mayúscula inicial, nombres propios y siglas (IoT, FTTH, UDABOL) como corresponde, con tildes. Ej: "Sistema de gestión académica para la Universidad de Aquino Bolivia".
 - studentName: El nombre completo del postulante o autor (string). Busca después de "POSTULANTE:", "AUTOR:", "ALUMNO:", "POR:". Devuelve el nombre en formato normal (sin mayúsculas sostenidas). Ej: "Oriana Madeleine Castro Vallejo".
-- career: La carrera (string). Debe ser exactamente una de: "Ingeniería en Sistemas", "Ingeniería en Telecomunicaciones", "Ingeniería Petrolera", o string vacío si no se identifica claramente.
+- career: La carrera (string). Debe ser exactamente una de: "Ingeniería en Sistemas", "Ingeniería en Telecomunicaciones", "Ingeniería Petrolera", "Ingeniería Civil", o string vacío si no se identifica claramente.
 - year: El año del documento (string, 4 dígitos). Busca en la portada: "Gestión 2024", "Cochabamba - Bolivia", o el año junto al lugar. Si hay varios, prioriza el de la portada.
-- keywords: Un array de strings con 5 a 10 palabras clave relevantes del proyecto (tecnologías, metodologías, temas principales). Extrae del título y del resumen/introducción si existen. Ej: ["machine learning", "procesamiento de lenguaje natural", "sistema de recomendación", "base de datos"]. Si no puedes determinarlas con confianza, devuelve un array vacío [].
+- keywords: Un array de 4 a 8 palabras clave cortas (1 a 3 palabras cada una, en minúsculas salvo siglas) relevantes del proyecto (tecnologías, metodologías, temas principales). Nunca repitas el título completo ni pongas la carrera como palabra clave. Extrae del título y del resumen/introducción si existen. Ej: ["machine learning", "procesamiento de lenguaje natural", "sistema de recomendación", "base de datos"]. Si no puedes determinarlas con confianza, devuelve un array vacío [].
 
 Texto del documento:
 """
-${text.substring(0, 6000)}
+${text.substring(0, 8000)}
 """`;
 
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-oss-20b",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error("Groq API error:", errorText);
-      return NextResponse.json({ error: "Failed to parse with Groq" }, { status: 502 });
+    // Modelo principal y uno de respaldo por si el primero falla o se satura.
+    let data: any = null;
+    // Cada modelo se intenta dos veces si falla la red (cortes momentáneos).
+    const attempts = MODELS.flatMap((m) => [m, m]);
+    for (const [i, model] of attempts.entries()) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 1200));
+      try {
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+          }),
+          signal: AbortSignal.timeout(25_000),
+        });
+        if (res.ok) {
+          data = await res.json();
+          break;
+        }
+        console.error(`Groq (${model}) respondió ${res.status}:`, (await res.text()).slice(0, 300));
+      } catch (err) {
+        console.error(`Groq (${model}) no respondió:`, err);
+      }
+    }
+    if (!data) {
+      return NextResponse.json({ error: "La IA no respondió; completa los datos a mano." }, { status: 502 });
     }
 
-    const data = await res.json();
     const content = data.choices?.[0]?.message?.content;
     const parsed = safeJsonParse(content || "{}");
 

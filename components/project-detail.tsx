@@ -2,156 +2,144 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  User,
-  Calendar,
-  GraduationCap,
-  FileText,
-  Download,
-  Tag,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, BookOpenText, Calendar, Check, Download, Link2, Maximize2, Tag, User } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { PdfViewer } from "@/components/pdf-viewer";
 import { PdfViewerDialog } from "@/components/pdf-viewer-dialog";
-import type { ThesisProject } from "@/lib/projects";
+import { CareerBadge } from "@/components/career-badge";
+import { pdfUrlFor, type ThesisProject } from "@/lib/projects";
 
-const CAREER_STYLES: Record<string, string> = {
-  "Ingeniería en Sistemas": "bg-chart-1/10 text-chart-1 border-chart-1/20",
-  "Ingeniería en Telecomunicaciones":
-    "bg-chart-4/15 text-chart-4 border-chart-4/25",
-  "Ingeniería Petrolera": "bg-chart-5/15 text-chart-5 border-chart-5/25",
-};
+export function ProjectDetail({ project, related = [] }: { project: ThesisProject; related?: ThesisProject[] }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const pdfUrl = pdfUrlFor(project.id);
 
-export function ProjectDetail({
-  project,
-}: {
-  project: ThesisProject;
-}) {
-  const [showPdf, setShowPdf] = useState(false);
-
-  const careerStyle =
-    CAREER_STYLES[project.career] ??
-    "bg-secondary text-secondary-foreground border-border";
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
 
   return (
     <>
-      <PdfViewerDialog
-        url={project.pdfUrl ?? null}
-        open={showPdf}
-        onOpenChange={setShowPdf}
-        title={project.title}
-      />
+      {project.hasPdf && <PdfViewerDialog url={pdfUrl} open={fullscreen} onOpenChange={setFullscreen} title={project.title} />}
 
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
-        {/* Botón Volver */}
-        <Link href="/">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-6 -ml-2 gap-2 text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            <ArrowLeft className="size-4" />
-            Volver a proyectos
-          </Button>
-        </Link>
+      {/* Encabezado */}
+      <section className="border-b border-border bg-card/70">
+        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+          <Link href="/" className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Volver al repositorio
+          </Link>
 
-        {/* Encabezado */}
-        <div className="mb-8 space-y-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="outline"
-              className={`font-medium ${careerStyle}`}
-            >
-              <GraduationCap className="size-3.5 mr-1" aria-hidden="true" />
-              {project.career}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="gap-1 font-medium text-muted-foreground"
-            >
-              <Calendar className="size-3.5" aria-hidden="true" />
-              {project.year}
-            </Badge>
-          </div>
-
-          <h1 className="text-3xl font-bold leading-tight tracking-tight text-foreground sm:text-4xl">
-            {project.title}
-          </h1>
-
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1.5 font-medium text-foreground">
-              <User className="size-4" aria-hidden="true" />
-              {project.studentName}
+            <CareerBadge career={project.career} />
+            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+              <Calendar className="size-4" aria-hidden="true" /> {project.year}
             </span>
           </div>
 
-          {/* Tags */}
-          {project.tags && project.tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Tag className="size-4 text-muted-foreground" aria-hidden="true" />
-              {project.tags.map((t) => (
-                <Badge
-                  key={t}
-                  variant="secondary"
-                  className="text-xs font-medium"
-                >
-                  {t}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
+          <h1 className="mt-4 font-heading text-2xl font-semibold leading-tight text-foreground sm:text-4xl">{project.title}</h1>
 
-        {/* Botones de acción */}
-        <div className="mb-8 flex flex-wrap gap-3">
-          {project.pdfUrl && (
-            <>
-              <Button
-                onClick={() => setShowPdf(true)}
-                variant="default"
-                size="lg"
-                className="gap-2 font-semibold cursor-pointer"
-              >
-                <FileText className="size-5" aria-hidden="true" />
-                Ver PDF
-              </Button>
-              <a href={"/api/pdf-proxy?url=" + encodeURIComponent(project.pdfUrl)} target="_blank" rel="noreferrer" download>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="gap-2 font-semibold cursor-pointer"
-                >
-                  <Download className="size-5" aria-hidden="true" />
-                  Descargar PDF
+          <p className="mt-4 flex items-center gap-2 text-base text-foreground">
+            <User className="size-5 text-gold-dark dark:text-gold" aria-hidden="true" />
+            <span className="font-medium">{project.studentName}</span>
+          </p>
+
+          <div className="mt-6 flex flex-wrap gap-2">
+            {project.hasPdf && (
+              <>
+                <a href="#documento" className={buttonVariants({ variant: "gold", size: "lg", className: "h-10 rounded-lg px-4" })}>
+                  <BookOpenText className="size-4" /> Leer documento
+                </a>
+                <a href={pdfUrlFor(project.id, undefined, { download: true })} className={buttonVariants({ variant: "outline", size: "lg", className: "h-10 rounded-lg px-4" })}>
+                  <Download className="size-4" /> Descargar PDF
+                </a>
+              </>
+            )}
+            <Button variant="outline" size="lg" onClick={copyLink} className="h-10 rounded-lg px-4">
+              {copied ? <Check className="size-4 text-success" /> : <Link2 className="size-4" />}
+              {copied ? "Enlace copiado" : "Copiar enlace"}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto grid max-w-5xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col gap-8">
+          <section>
+            <h2 className="mb-3 font-heading text-xl font-semibold text-foreground">Resumen</h2>
+            {project.abstract ? (
+              <p className="whitespace-pre-line rounded-xl border border-border bg-card p-5 text-[15px] leading-relaxed text-card-foreground shadow-card">
+                {project.abstract}
+              </p>
+            ) : (
+              <p className="rounded-xl border border-dashed border-border p-5 text-sm italic text-muted-foreground">
+                Este proyecto todavía no tiene resumen registrado.
+              </p>
+            )}
+          </section>
+
+          <section id="documento" className="scroll-mt-24">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="font-heading text-xl font-semibold text-foreground">Documento</h2>
+              {project.hasPdf && (
+                <Button variant="ghost" size="sm" onClick={() => setFullscreen(true)}>
+                  <Maximize2 className="size-4" /> Pantalla completa
                 </Button>
-              </a>
-            </>
-          )}
-          {!project.pdfUrl && (
-            <p className="text-sm italic text-muted-foreground">
-              Este proyecto no tiene un PDF adjunto.
-            </p>
-          )}
+              )}
+            </div>
+            {project.hasPdf ? (
+              <div className="h-[75vh] min-h-[420px] overflow-hidden rounded-xl border border-border shadow-card">
+                <PdfViewer key={pdfUrl} url={pdfUrl} title={project.title} />
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-border p-5 text-sm italic text-muted-foreground">
+                El documento digital de este proyecto aún no fue cargado al repositorio.
+              </p>
+            )}
+          </section>
         </div>
 
-        {/* Resumen */}
-        <section className="mb-10">
-          <h2 className="mb-4 text-xl font-bold text-foreground">Resumen</h2>
-          {project.abstract ? (
-            <div className="prose prose-neutral dark:prose-invert max-w-none rounded-xl border border-border bg-card p-6 text-base leading-relaxed text-card-foreground">
-              {project.abstract}
-            </div>
-          ) : (
-            <p className="text-sm italic text-muted-foreground">
-              No se ha registrado un resumen para este proyecto.
-            </p>
+        <aside className="flex flex-col gap-6">
+          {project.tags && project.tags.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Tag className="size-3.5" /> Palabras clave
+              </h2>
+              <div className="flex flex-wrap gap-1.5">
+                {project.tags.map((t) => (
+                  <Link
+                    key={t}
+                    href={`/?tag=${encodeURIComponent(t)}`}
+                    className="rounded-full border border-border bg-secondary/60 px-2.5 py-1 text-xs font-medium text-secondary-foreground hover:border-gold/60 hover:bg-gold/10"
+                  >
+                    {t}
+                  </Link>
+                ))}
+              </div>
+            </section>
           )}
-        </section>
 
-        {/* Historial de versiones de PDF y de cambios:
-            solo visibles en la vista Administrar (admin-projects.tsx),
-            no en la búsqueda pública. */}
+          {related.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Proyectos relacionados</h2>
+              <ul className="flex flex-col gap-2">
+                {related.map((r) => (
+                  <li key={r.id}>
+                    <Link href={`/proyecto/${r.id}`} className="block rounded-lg border border-border bg-card p-3 text-sm shadow-card transition-colors hover:border-gold/50">
+                      <span className="line-clamp-3 font-medium leading-snug text-foreground">{r.title}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {r.studentName} · {r.year}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </aside>
       </div>
     </>
   );

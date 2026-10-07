@@ -1,205 +1,249 @@
-"use client"
+"use client";
 
-import { useState, useTransition, useEffect, useMemo } from "react"
-import { searchProjects } from "@/app/actions/projects"
-import { CARRERAS, type SearchResult } from "@/lib/projects"
-import { ProjectCard } from "@/components/project-card"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Search, Loader2, SearchX, X, ArrowUpDown } from "lucide-react"
-import { PaginationControls } from "@/components/pagination-controls"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Loader2, Search, SearchX, SlidersHorizontal, Tag, X } from "lucide-react";
+import { searchProjects } from "@/app/actions/projects";
+import { CARRERAS, type SearchResult } from "@/lib/projects";
+import { ProjectCard } from "@/components/project-card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PaginationControls } from "@/components/pagination-controls";
+import { significantTokens } from "@/lib/search";
 
-type SortKey = "title" | "year" | "career" | "studentName" | "createdAt"
-type SortDir = "asc" | "desc"
+type SortKey = "relevancia" | "year" | "createdAt" | "title" | "studentName";
+
+const SORT_LABELS: Record<SortKey, string> = {
+  relevancia: "Más relevantes",
+  year: "Año (más reciente)",
+  createdAt: "Agregados recientemente",
+  title: "Título (A-Z)",
+  studentName: "Alumno (A-Z)",
+};
+
+function readUrl() {
+  if (typeof window === "undefined") return { q: "", carrera: "", desde: "", hasta: "", tag: "" };
+  const p = new URLSearchParams(window.location.search);
+  return { q: p.get("q") ?? "", carrera: p.get("carrera") ?? "", desde: p.get("desde") ?? "", hasta: p.get("hasta") ?? "", tag: p.get("tag") ?? "" };
+}
 
 export function ProjectSearch({ initial }: { initial: SearchResult[] }) {
-  const [query, setQuery] = useState("")
-  const [career, setCareer] = useState("")
-  const [yearFrom, setYearFrom] = useState("")
-  const [yearTo, setYearTo] = useState("")
-  const [yearError, setYearError] = useState<string | null>(null)
-  const [results, setResults] = useState<SearchResult[]>(initial)
-  const [hasSearched, setHasSearched] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const [pageSize, setPageSize] = useState(10)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [sortKey, setSortKey] = useState<SortKey>("year")
-  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [initialUrl] = useState(readUrl);
+  const [query, setQuery] = useState(initialUrl.q);
+  const [career, setCareer] = useState(initialUrl.carrera);
+  const [yearFrom, setYearFrom] = useState(initialUrl.desde);
+  const [yearTo, setYearTo] = useState(initialUrl.hasta);
+  const [tag, setTag] = useState(initialUrl.tag);
+  const [results, setResults] = useState<SearchResult[]>(initial);
+  const [isPending, startTransition] = useTransition();
+  const [pageSize, setPageSize] = useState(12);
+  const [currentPage, setCurrentPage] = useState(1);
+  // null = orden automático: relevancia si hay consulta, año si no.
+  const [chosenSort, setSortKey] = useState<SortKey | null>(null);
+  const [showFilters, setShowFilters] = useState(!!(initialUrl.carrera || initialUrl.desde || initialUrl.hasta));
+  const topRef = useRef<HTMLDivElement>(null);
+  const hasQuery = significantTokens(query).length > 0;
 
+  const from = parseInt(yearFrom, 10);
+  const to = parseInt(yearTo, 10);
+  const yearError = Number.isFinite(from) && Number.isFinite(to) && from > to ? 'El año "desde" es mayor que el año "hasta".' : null;
+
+  // Buscar en el servidor (con pausa de 250 ms mientras se escribe) y reflejar los filtros en la URL.
   useEffect(() => {
+    if (yearError) return;
     const handle = setTimeout(() => {
-      setYearError(null)
-      const from = parseInt(yearFrom, 10)
-      const to = parseInt(yearTo, 10)
-      const fromNum = isFinite(from) ? from : null
-      const toNum = isFinite(to) ? to : null
-
-      if (fromNum !== null && toNum !== null && fromNum > toNum) {
-        setYearError('El año "desde" no puede ser mayor al año "hasta"')
-        return
-      }
-
+      const filters = {
+        career: career || undefined,
+        yearFrom: Number.isFinite(from) ? from : undefined,
+        yearTo: Number.isFinite(to) ? to : undefined,
+        tag: tag || undefined,
+      };
       startTransition(async () => {
-        const filters: { career?: string; yearFrom?: number; yearTo?: number } = {}
-        if (career) filters.career = career
-        if (fromNum !== null) filters.yearFrom = fromNum
-        if (toNum !== null) filters.yearTo = toNum
+        setResults(await searchProjects(query, filters));
+        setCurrentPage(1);
+      });
+      const p = new URLSearchParams(window.location.search);
+      for (const [k, v] of Object.entries({ q: query.trim(), carrera: career, desde: yearFrom, hasta: yearTo, tag })) {
+        if (v) p.set(k, v);
+        else p.delete(k);
+      }
+      const qs = p.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, career, yearFrom, yearTo, tag]);
 
-        const res = await searchProjects(query, filters)
-        setResults(res)
-        setCurrentPage(1)
-        setHasSearched(query.trim().length > 0 || !!career || fromNum !== null || toNum !== null)
-      })
-    }, 300)
-    return () => clearTimeout(handle)
-  }, [query, career, yearFrom, yearTo])
+  const sortKey: SortKey =
+    chosenSort === "relevancia" && !hasQuery ? "year" : chosenSort ?? (hasQuery ? "relevancia" : "year");
 
-  function clearFilters() {
-    setCareer("")
-    setYearFrom("")
-    setYearTo("")
-    setYearError(null)
-    setCurrentPage(1)
-  }
-
-  const hasFilters = !!career || !!yearFrom || !!yearTo
-
-  // Ordenamiento
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-    else { setSortKey(key); setSortDir(key === "createdAt" ? "desc" : "asc") }
-  }
-
-  const sortedResults = useMemo(() => {
+  const sorted = useMemo(() => {
+    if (sortKey === "relevancia") return results; // ya vienen ordenados por puntaje
     return [...results].sort((a, b) => {
-      const aVal = String(a[sortKey] ?? "")
-      const bVal = String(b[sortKey] ?? "")
-      const cmp = aVal.localeCompare(bVal, "es")
-      return sortDir === "asc" ? cmp : -cmp
-    })
-  }, [results, sortKey, sortDir])
+      if (sortKey === "year") return b.year - a.year || b.createdAt.localeCompare(a.createdAt);
+      if (sortKey === "createdAt") return b.createdAt.localeCompare(a.createdAt);
+      return String(a[sortKey] ?? "").localeCompare(String(b[sortKey] ?? ""), "es");
+    });
+  }, [results, sortKey]);
 
-  // Paginación
-  const totalPages = Math.max(1, Math.ceil(sortedResults.length / pageSize))
-  const safePage = Math.max(1, Math.min(currentPage, totalPages))
-  const paginatedResults = sortedResults.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const pageItems = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const filtersActive = !!(career || yearFrom || yearTo || tag);
+
+  function clearAll() {
+    setQuery("");
+    setCareer("");
+    setYearFrom("");
+    setYearTo("");
+    setTag("");
+  }
+
+  function changePage(p: number) {
+    setCurrentPage(p);
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Busca por título, tema, alumno o carrera..."
-            aria-label="Buscar proyectos de grado"
-            className="h-14 pl-12 text-base"
-          />
-        </div>
-        <Button type="submit" size="lg" className="h-14 px-6 text-base font-semibold sm:w-auto">
-          {isPending ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <Search className="size-5" aria-hidden="true" />}
-          Buscar
-        </Button>
-      </form>
-
-      {/* Filtros */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="filter-career" className="text-xs font-semibold text-muted-foreground">Carrera</label>
-          <Select value={career} onValueChange={(val) => setCareer(val === "all" || !val ? "" : val)}>
-            <SelectTrigger id="filter-career" className="!h-10 w-[240px] text-sm items-center">
-              <SelectValue placeholder="Todas las carreras" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-sm">Todas las carreras</SelectItem>
-              {CARRERAS.map((c) => (<SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="filter-year-from" className="text-xs font-semibold text-muted-foreground">Año desde</label>
-          <Input
-            id="filter-year-from" type="number" min={1980} max={2100}
-            value={yearFrom} onChange={(e) => setYearFrom(e.target.value)}
-            placeholder="Ej. 2020" className="h-10 w-[120px] text-sm"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="filter-year-to" className="text-xs font-semibold text-muted-foreground">Año hasta</label>
-          <Input
-            id="filter-year-to" type="number" min={1980} max={2100}
-            value={yearTo} onChange={(e) => setYearTo(e.target.value)}
-            placeholder="Ej. 2025" className="h-10 w-[120px] text-sm"
-          />
-        </div>
-
-        {hasFilters && (
-          <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="h-10 gap-1.5 text-xs cursor-pointer">
-            <X className="size-3.5" /> Limpiar filtros
+    <div className="flex flex-col gap-5" ref={topRef}>
+      {/* Buscador */}
+      <div className="rounded-2xl border border-border bg-card p-3 shadow-card sm:p-4">
+        <form onSubmit={(e) => e.preventDefault()} className="flex gap-2" role="search">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Busca por tema, título, palabra clave o alumno…"
+              aria-label="Buscar proyectos de grado"
+              className="h-12 rounded-xl pl-12 pr-10 text-base"
+              autoFocus
+            />
+            {isPending && <Loader2 className="absolute right-3.5 top-1/2 size-5 -translate-y-1/2 animate-spin text-muted-foreground" />}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowFilters((s) => !s)}
+            aria-expanded={showFilters}
+            className={`h-12 rounded-xl px-3 sm:px-4 ${filtersActive ? "border-gold text-foreground" : ""}`}
+          >
+            <SlidersHorizontal className="size-4" />
+            <span className="hidden sm:inline">Filtros</span>
+            {filtersActive && <span className="size-2 rounded-full bg-gold" />}
           </Button>
+        </form>
+
+        {showFilters && (
+          <div className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto] sm:items-end">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="filter-career" className="text-xs font-semibold text-muted-foreground">
+                Carrera
+              </label>
+              <Select value={career || "all"} onValueChange={(v) => setCareer(!v || v === "all" ? "" : v)}>
+                <SelectTrigger id="filter-career" className="!h-10 w-full">
+                  <SelectValue>{(v: string) => (v === "all" ? "Todas las carreras" : v)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las carreras</SelectItem>
+                  {CARRERAS.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:contents">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="filter-year-from" className="text-xs font-semibold text-muted-foreground">
+                  Año desde
+                </label>
+                <Input id="filter-year-from" inputMode="numeric" value={yearFrom} onChange={(e) => setYearFrom(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="2020" className="h-10" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="filter-year-to" className="text-xs font-semibold text-muted-foreground">
+                  Año hasta
+                </label>
+                <Input id="filter-year-to" inputMode="numeric" value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="2026" className="h-10" />
+              </div>
+            </div>
+            <Button type="button" variant="ghost" onClick={clearAll} disabled={!filtersActive && !query} className="h-10">
+              <X className="size-4" /> Limpiar
+            </Button>
+            {yearError && <p className="text-xs font-medium text-destructive sm:col-span-4">{yearError}</p>}
+          </div>
         )}
       </div>
 
-      {yearError && <p className="text-xs text-destructive font-medium">{yearError}</p>}
-
-      {/* Sorters */}
-      <div className="flex gap-1 text-xs">
-        {(["title", "year", "career", "studentName", "createdAt"] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => { toggleSort(key); setCurrentPage(1); }}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors ${
-              sortKey === key
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            {key === "title" ? "Título" : key === "year" ? "Año" : key === "career" ? "Carrera" : key === "studentName" ? "Alumno" : "Fecha de subida"}
-            {sortKey === key && <ArrowUpDown className="size-3" />}
-          </button>
-        ))}
+      {/* Resumen y orden */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+          <span>
+            <strong className="font-semibold text-foreground">{sorted.length}</strong>{" "}
+            {hasQuery || filtersActive ? (sorted.length === 1 ? "resultado" : "resultados") : sorted.length === 1 ? "proyecto" : "proyectos"}
+          </span>
+          {tag && (
+            <button
+              type="button"
+              onClick={() => setTag("")}
+              className="inline-flex items-center gap-1 rounded-full border border-gold bg-gold/15 px-2.5 py-0.5 text-xs font-medium text-foreground"
+            >
+              <Tag className="size-3" /> {tag} <X className="size-3" />
+            </button>
+          )}
+        </div>
+        <Select value={sortKey} onValueChange={(v) => v && setSortKey(v as SortKey)}>
+          <SelectTrigger className="!h-9 w-auto min-w-48 text-sm" aria-label="Ordenar resultados">
+            <SelectValue>{(v: string) => SORT_LABELS[v as SortKey] ?? v}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(SORT_LABELS) as SortKey[])
+              .filter((k) => k !== "relevancia" || hasQuery)
+              .map((k) => (
+                <SelectItem key={k} value={k}>
+                  {SORT_LABELS[k]}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground" aria-live="polite">
-          {hasSearched
-            ? `${sortedResults.length} ${sortedResults.length === 1 ? "resultado" : "resultados"} encontrados`
-            : `${sortedResults.length} ${sortedResults.length === 1 ? "proyecto registrado" : "proyectos registrados"}`}
-        </p>
-      </div>
-
-      {sortedResults.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card/50 px-6 py-14 text-center">
+      {/* Resultados */}
+      {sorted.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-card/60 px-6 py-16 text-center">
           <SearchX className="size-10 text-muted-foreground" aria-hidden="true" />
-          <p className="text-base font-medium text-foreground">No se encontraron proyectos</p>
-          <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">Intenta con otras palabras o ajusta los filtros.</p>
+          <p className="font-heading text-lg font-semibold text-foreground">No se encontraron proyectos</p>
+          <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+            Prueba con otras palabras, revisa la ortografía o quita algún filtro.
+          </p>
+          {(hasQuery || filtersActive) && (
+            <Button variant="outline" size="sm" onClick={clearAll}>
+              Limpiar búsqueda
+            </Button>
+          )}
         </div>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
-            {paginatedResults.map((p) => (<ProjectCard key={p.id} project={p} />))}
+          <div className={`grid gap-4 sm:grid-cols-2 xl:grid-cols-3 ${isPending ? "opacity-70 transition-opacity" : ""}`}>
+            {pageItems.map((p) => (
+              <ProjectCard key={p.id} project={p} activeTag={tag} onTagClick={(t) => setTag((cur) => (cur.toLowerCase() === t.toLowerCase() ? "" : t))} />
+            ))}
           </div>
           <PaginationControls
             pageSize={pageSize}
             currentPage={safePage}
-            totalItems={sortedResults.length}
-            onPageSizeChange={(s) => { setPageSize(s); setCurrentPage(1); }}
-            onPageChange={setCurrentPage}
+            totalItems={sorted.length}
+            pageSizeOptions={[12, 24, 48]}
+            onPageSizeChange={(s) => {
+              setPageSize(s);
+              setCurrentPage(1);
+            }}
+            onPageChange={changePage}
           />
         </>
       )}
     </div>
-  )
+  );
 }
