@@ -21,14 +21,17 @@ const SORT_LABELS: Record<SortKey, string> = {
   studentName: "Alumno (A-Z)",
 };
 
-function readUrl() {
-  if (typeof window === "undefined") return { q: "", carrera: "", desde: "", hasta: "", tag: "" };
-  const p = new URLSearchParams(window.location.search);
-  return { q: p.get("q") ?? "", carrera: p.get("carrera") ?? "", desde: p.get("desde") ?? "", hasta: p.get("hasta") ?? "", tag: p.get("tag") ?? "" };
-}
+export type SearchParamsState = { q: string; carrera: string; desde: string; hasta: string; tag: string };
 
-export function ProjectSearch({ initial }: { initial: SearchResult[] }) {
-  const [initialUrl] = useState(readUrl);
+export const EMPTY_SEARCH: SearchParamsState = { q: "", carrera: "", desde: "", hasta: "", tag: "" };
+
+/**
+ * `initial` ya viene filtrado por el servidor según la URL (?q=, ?tag=, ...), y
+ * `initialParams` trae esos mismos valores: así lo que dibuja el servidor y el
+ * navegador coincide (antes se leía window.location y React redibujaba todo).
+ */
+export function ProjectSearch({ initial, initialParams = EMPTY_SEARCH }: { initial: SearchResult[]; initialParams?: SearchParamsState }) {
+  const initialUrl = initialParams;
   const [query, setQuery] = useState(initialUrl.q);
   const [career, setCareer] = useState(initialUrl.carrera);
   const [yearFrom, setYearFrom] = useState(initialUrl.desde);

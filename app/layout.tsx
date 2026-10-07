@@ -21,9 +21,9 @@ export const metadata: Metadata = {
   applicationName: 'SGPG UDABOL',
   icons: {
     icon: [
-      { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },
-      { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
     ],
     apple: '/apple-icon.png',
   },
@@ -37,7 +37,7 @@ export const viewport: Viewport = {
 }
 
 // Aplica el tema guardado antes de pintar, para que no parpadee al cargar.
-const themeScript = `(function(){try{var s=localStorage.getItem('udabol-theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark')}catch(e){}})()`
+const themeScript = `(function(){try{var s=localStorage.getItem('udabol-theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}})()`
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

@@ -5,18 +5,18 @@ import { Moon, Sun } from "lucide-react";
 
 function subscribe(onChange: () => void) {
   const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   return () => observer.disconnect();
 }
 
 export function ThemeToggle({ className = "" }: { className?: string }) {
   // El script del layout aplica el tema antes de pintar; aquí se lee la clase
-  // "dark" del <html> como estado externo (y se escucha si cambia).
-  const dark = useSyncExternalStore(subscribe, () => document.documentElement.classList.contains("dark"), () => false);
+  // data-theme del <html> como estado externo (y se escucha si cambia).
+  const dark = useSyncExternalStore(subscribe, () => document.documentElement.dataset.theme === "dark", () => false);
 
   function toggle() {
-    const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
+    const next = document.documentElement.dataset.theme !== "dark";
+    document.documentElement.dataset.theme = next ? "dark" : "light";
     try {
       localStorage.setItem("udabol-theme", next ? "dark" : "light");
     } catch {}
