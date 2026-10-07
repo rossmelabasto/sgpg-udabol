@@ -243,7 +243,7 @@ export function AdminProjects({ projects, role, onDelete, onEdit, onChanged }: P
                 <div className="flex shrink-0 flex-wrap gap-1.5">
                   {view === "activos" ? (
                     <>
-                      <Link href={`/proyecto/${p.id}`} target="_blank" className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground" title="Abrir en una pestaña nueva">
+                      <Link href={`/proyecto/${p.id}`} className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground" title="Ver la página del proyecto">
                         <ExternalLink className="size-3.5" /> Ver
                       </Link>
                       <Button variant="outline" size="sm" className="h-8" onClick={() => setHistoryOf(p)}>

@@ -56,7 +56,9 @@ export function PdfViewer({ url, title = "PDF", onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    let doc: any = null;
+    // En pdf.js 6 el documento se libera destruyendo la tarea de carga
+    // (PDFDocumentProxy ya no tiene destroy()).
+    let task: any = null;
 
     (async () => {
       try {
@@ -96,7 +98,7 @@ export function PdfViewer({ url, title = "PDF", onClose }: Props) {
           if (e.matchesCount) setMatches(e.matchesCount);
         });
 
-        const task = pdfjs.getDocument({
+        task = pdfjs.getDocument({
           url,
           rangeChunkSize: 128 * 1024,
           disableAutoFetch: true,
@@ -105,11 +107,8 @@ export function PdfViewer({ url, title = "PDF", onClose }: Props) {
         task.onProgress = (p: { loaded: number; total: number }) => {
           if (p.total) setProgress(Math.min(99, Math.round((p.loaded / p.total) * 100)));
         };
-        doc = await task.promise;
-        if (cancelled) {
-          doc.destroy();
-          return;
-        }
+        const doc = await task.promise;
+        if (cancelled) return;
         viewer.setDocument(doc);
         linkService.setDocument(doc, null);
         setPages(doc.numPages);
@@ -137,7 +136,7 @@ export function PdfViewer({ url, title = "PDF", onClose }: Props) {
       } catch {}
       viewerRef.current = null;
       eventBusRef.current = null;
-      if (doc) doc.destroy();
+      task?.destroy().catch(() => {});
     };
   }, [url]);
 

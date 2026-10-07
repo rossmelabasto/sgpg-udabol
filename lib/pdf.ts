@@ -244,8 +244,15 @@ export async function extractPdfData(file: File): Promise<PdfExtraction> {
 
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-  const pdf = await loadingTask.promise;
+  try {
+    return await analyzeDocument(await loadingTask.promise);
+  } finally {
+    // Libera el worker y la memoria del documento (importante en la subida masiva).
+    loadingTask.destroy().catch(() => {});
+  }
+}
 
+async function analyzeDocument(pdf: any): Promise<PdfExtraction> {
   // --- PASO 1: Extraer texto de cada página por separado ---
   const pageTexts: string[] = [];
   const maxPages = Math.min(pdf.numPages, 20);
