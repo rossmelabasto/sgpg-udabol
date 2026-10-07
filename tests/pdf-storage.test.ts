@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { resolvePdfPath, isValidPdfPath, looksLikePdf, buildStoragePath } from "@/lib/pdf-storage";
 
+// vi.mock se eleva al inicio del archivo: Firebase Admin no se inicializa en las pruebas.
 vi.mock("@/lib/firebase/admin", () => ({ adminStorage: {}, adminDb: {}, adminAuth: {} }));
-const { resolvePdfPath, isValidPdfPath, looksLikePdf, buildStoragePath } = await import("@/lib/pdf-storage");
 
 describe("rutas de PDF", () => {
   it("usa pdfPath si existe", () => {
